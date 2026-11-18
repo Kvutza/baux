@@ -57,9 +57,10 @@ mod precision;
 pub mod flame;
 
 pub mod context;
-mod knn;
+pub mod knn;
 mod model;
 mod prefill;
+pub use knn::turbo::RegionTicket;
 pub use knn::{
     BatchOutput, BatchSpec, CUVS_MAX_K, CatSnap, CudaIndex, CudaKnnMode, CudaScratch, DeviceDraw,
     DevicePosterior, DrawOutput, FencedProposal, KnnProfile, MorboCuda, MorboRegion, MorboSpec,

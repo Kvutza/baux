@@ -660,6 +660,7 @@ def with_geometry(model: Any, geometry: str, local_k: int = 4) -> Any:
             model.spec if model.spec is not None else model.bounds,
             cfg,
             seed=model.seed,
+            device=model.device,
         )
     if hasattr(model, "_rust") and hasattr(model._rust, "with_geometry"):
         model._rust = model._rust.with_geometry(m, k)
@@ -792,6 +793,7 @@ def _codomain(
             target.spec if target.spec is not None else target.bounds,
             cfg,
             seed=target.seed,
+            device=target.device,
         )
     raise TypeError(f"Unsupported target for codomain transform: {type(target)!r}")
 

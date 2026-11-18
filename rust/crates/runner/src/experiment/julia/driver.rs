@@ -1,19 +1,22 @@
-//! Optimization driver, host execution, and run reporting for Julia
-//! experiments.
+//! Optimization driver, unified cross-backend execution, and run reporting for
+//! Julia experiments.
 
 use std::path::Path;
 use std::time::Instant;
 
 use baux::artifact::json::{Value, json};
 use baux::optimizer::DomainFrame;
-use baux::{BayesOptimizer, prng};
+use baux::prng;
 use ndarray::Array2;
 
 use crate::experiment::julia::config::{Config, ExecMode, is_ocean};
 use crate::experiment::julia::label::{model_label, opt_label};
-use crate::experiment::julia::metal::{SeedRun, run_metal};
+use crate::experiment::julia::metal::{SeedRun, metal_job, objective_policy};
+use crate::experiment::julia::metal_step::{MetalFiber, MetalJobSpec};
+use crate::experiment::julia::mode::mode_backend;
 use crate::experiment::julia::space::{ensure_upstream, resolve_space};
 use crate::experiment::julia::worker::JuliaWorker;
+use crate::experiment::tokamak::ckpt;
 
 pub fn loss_metric(cfg: &Config, score: f64) -> f64 {
     if is_ocean(cfg) {
@@ -112,40 +115,123 @@ pub fn opt_cfg(
     Ok(cfg_opt)
 }
 
-fn step_round(
-    unit: &Array2<f64>,
-    num_dim: usize,
-    _n_obj: usize,
-    best_unit: &mut [f64],
-    worker: &mut JuliaWorker,
-) -> Result<(Vec<f64>, Vec<f64>, u64), String> {
-    let (scores, viols, dt_us) = worker.eval_unit(&unit.view())?;
-    for (i, _) in viols.iter().enumerate() {
-        if let Some(sl) = unit.as_slice() {
-            best_unit.copy_from_slice(&sl[i * num_dim..(i + 1) * num_dim]);
-        }
-    }
-    Ok((scores, viols, dt_us))
-}
-
-fn init_optimizer(
+pub(crate) fn run_bo(
     cfg: &Config,
     mode: ExecMode,
     domain: &DomainFrame,
-    out_dir: &Path,
+    out_dir: Option<&Path>,
+    ckpt_dir: Option<&Path>,
     rep: u32,
-    _n_obj: usize,
-    rng: &mut baux::Prng,
-) -> Result<BayesOptimizer, String> {
-    let cfg_opt = opt_cfg(cfg, _n_obj)?;
-    if mode == ExecMode::HostDisk {
-        let work = out_dir.join(format!("bpann_rep{rep}"));
-        BayesOptimizer::with_disk(domain.clone(), cfg_opt, &cfg.optimizer, 0, work, rng)
-            .map_err(|e| e.to_string())
-    } else {
-        BayesOptimizer::with_domain(domain.clone(), cfg_opt, &cfg.optimizer, 0, rng)
-            .map_err(|e| e.to_string())
+    worker: &mut JuliaWorker,
+) -> Result<SeedRun, String> {
+    let seed = baux::tune_seed(&cfg.experiment, "proposal", rep, 0);
+    let n_obj = worker.num_obj;
+    let num_dim = domain.num_dim();
+    let cfg_opt = opt_cfg(cfg, n_obj)?;
+    let policy = objective_policy(cfg, n_obj, seed);
+    let backend = mode_backend(mode, out_dir, rep);
+    let spec = MetalJobSpec::with_backend(
+        rep,
+        seed,
+        domain.clone(),
+        n_obj,
+        cfg.rounds,
+        &cfg.optimizer,
+        cfg_opt,
+        policy,
+        backend,
+    )?;
+
+    if mode == ExecMode::ResidentMetal {
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        {
+            let (st, best_row) = metal_job(
+                &spec,
+                ckpt_dir,
+                |sc| loss_metric(cfg, sc),
+                |rows| worker.eval_halves(rows),
+            )?;
+            let state_snap = worker.half_snap(best_row.as_ptr())?;
+            let final_err = loss_metric(cfg, st.best_score);
+            let final_viol = st.best_viols.last().copied().unwrap_or(0.0);
+            let reduction_pct = if st.initial_error > 0.0 {
+                ((st.initial_error - final_err) / st.initial_error * 100.0).max(0.0)
+            } else {
+                0.0
+            };
+            if let Some(dir) = ckpt_dir {
+                let done = ckpt::SeedRecord {
+                    rep,
+                    seed,
+                    num_dim,
+                    initial_error: st.initial_error,
+                    final_score: st.best_score,
+                    final_error: final_err,
+                    reduction_pct,
+                    total_accepts: st.total_accepts,
+                    elapsed_seconds: st.elapsed_seconds,
+                    best_scores: st.best_scores.clone(),
+                };
+                ckpt::save_done(dir, &done)?;
+            }
+            return Ok(SeedRun {
+                rep,
+                seed,
+                num_dim,
+                init_err: st.initial_error,
+                final_score: st.best_score,
+                final_err,
+                final_viol,
+                reduction_pct,
+                accepts: st.total_accepts,
+                elapsed_s: st.elapsed_seconds,
+                worker_s: st.worker_seconds,
+                best_scores: st.best_scores,
+                best_viols: st.best_viols,
+                state_snap,
+            });
+        }
+        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        {
+            let _ = ckpt_dir;
+            return Err("resident Metal backend requires macOS + metal feature".into());
+        }
     }
+
+    let mut fiber = MetalFiber::new(spec);
+    let mut best_scores = Vec::with_capacity(cfg.rounds);
+    let mut best_viols = Vec::with_capacity(cfg.rounds);
+    let t0 = Instant::now();
+    for _ in 1..=cfg.rounds {
+        let unit = fiber.prepare_unit()?;
+        let (scores, viols, dt_us) = worker.eval_unit(&unit.view())?;
+        let rec = fiber.commit_unit(&scores, &viols, dt_us, &|sc| loss_metric(cfg, sc))?;
+        best_scores.push(rec.best_score);
+        best_viols.push(rec.best_viol);
+    }
+    let (_, _, state_snap) = worker.eval_snap(&fiber.best_unit)?;
+    let final_err = loss_metric(cfg, fiber.best_score);
+    let reduction_pct = if fiber.initial_error > 0.0 {
+        ((fiber.initial_error - final_err) / fiber.initial_error * 100.0).max(0.0)
+    } else {
+        0.0
+    };
+    Ok(SeedRun {
+        rep,
+        seed,
+        num_dim,
+        init_err: fiber.initial_error,
+        final_score: fiber.best_score,
+        final_err,
+        final_viol: fiber.best_viol,
+        reduction_pct,
+        accepts: fiber.total_accepts as usize,
+        elapsed_s: t0.elapsed().as_secs_f64(),
+        worker_s: fiber.worker_s,
+        best_scores,
+        best_viols,
+        state_snap,
+    })
 }
 
 pub fn run_host(
@@ -156,76 +242,7 @@ pub fn run_host(
     rep: u32,
     worker: &mut JuliaWorker,
 ) -> Result<SeedRun, String> {
-    let seed = baux::tune_seed(&cfg.experiment, "proposal", rep, 0);
-    let n_obj = worker.num_obj;
-    let mut opt = init_optimizer(cfg, mode, domain, out_dir, rep, n_obj, &mut prng(seed))?;
-
-    let num_dim = opt.num_dim();
-    let arms = cfg
-        .optimizer
-        .candidate_generation()
-        .map(|c| c.arms as usize)
-        .unwrap_or(1)
-        .max(1);
-    let mut best_score = f64::NEG_INFINITY;
-    let mut best_viol = f64::INFINITY;
-    let mut best_unit = vec![0.5f64; num_dim];
-    let mut init_err = 0.0;
-    let mut accepts = 0usize;
-    let mut worker_us = 0u64;
-    let mut best_scores = Vec::with_capacity(cfg.rounds);
-    let mut best_viols = Vec::with_capacity(cfg.rounds);
-    let t0 = Instant::now();
-
-    for round in 1..=cfg.rounds {
-        let mut step_rng = crate::experiment::tokamak::label::round_rng(seed, round);
-        let (next_opt, unit) = opt.ask(arms, &mut step_rng).map_err(|e| e.to_string())?;
-        opt = next_opt;
-        let (scores, viols, dt_us) = step_round(&unit, num_dim, n_obj, &mut best_unit, worker)?;
-        worker_us += dt_us;
-        for (i, &vl) in viols.iter().enumerate() {
-            let sc = scalar_score(&scores, i, n_obj);
-            if sc > best_score {
-                best_score = sc;
-                best_viol = vl;
-                accepts += 1;
-            }
-        }
-        if round == 1 {
-            init_err = loss_metric(cfg, best_score);
-        }
-        let y = Array2::from_shape_fn((arms, n_obj), |(i, m)| scores[i * n_obj + m]);
-        opt = opt
-            .tell(&unit.view(), &y.view(), None, &mut step_rng)
-            .map_err(|e| e.to_string())?;
-        best_scores.push(best_score);
-        best_viols.push(best_viol);
-    }
-
-    let (_, _, state_snap) = worker.eval_snap(&best_unit)?;
-    let final_err = loss_metric(cfg, best_score);
-    let reduction_pct = if init_err > 0.0 {
-        ((init_err - final_err) / init_err * 100.0).max(0.0)
-    } else {
-        0.0
-    };
-
-    Ok(SeedRun {
-        rep,
-        seed,
-        num_dim,
-        init_err,
-        final_score: best_score,
-        final_err,
-        final_viol: best_viol,
-        reduction_pct,
-        accepts,
-        elapsed_s: t0.elapsed().as_secs_f64(),
-        worker_s: (worker_us as f64) * 1.0e-6,
-        best_scores,
-        best_viols,
-        state_snap,
-    })
+    run_bo(cfg, mode, domain, Some(out_dir), None, rep, worker)
 }
 
 pub fn run_ppo(
@@ -419,18 +436,24 @@ pub fn run_opt(cfg: &Config, mode: ExecMode, root: &Path, out_dir: &Path) -> Res
     } else {
         1
     };
-    let ckpt_dir = crate::experiment::tokamak::ckpt::ckpt_dir(out_dir);
-    let reps = crate::experiment::tokamak::ckpt::rep_indices(cfg.repetitions)?;
+    let ckpt_dir = ckpt::ckpt_dir(out_dir);
+    let reps = ckpt::rep_indices(cfg.repetitions)?;
     let mut worker = JuliaWorker::spawn(root, cfg, arms, low, span, state_len)?;
 
     let mut runs = Vec::with_capacity(reps.len());
     for rep in reps {
-        let sr = match mode {
-            ExecMode::HostRam | ExecMode::HostDisk => {
-                run_host(cfg, mode, &domain, out_dir, rep, &mut worker)?
-            }
-            ExecMode::ResidentMetal => run_metal(cfg, num_dim, rep, Some(&ckpt_dir), &mut worker)?,
-            ExecMode::MetalPpo => run_ppo(cfg, num_dim, rep, &mut worker)?,
+        let sr = if mode == ExecMode::MetalPpo {
+            run_ppo(cfg, num_dim, rep, &mut worker)?
+        } else {
+            run_bo(
+                cfg,
+                mode,
+                &domain,
+                Some(out_dir),
+                Some(&ckpt_dir),
+                rep,
+                &mut worker,
+            )?
         };
         runs.push(sr);
     }

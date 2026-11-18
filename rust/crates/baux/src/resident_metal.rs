@@ -60,6 +60,8 @@ pub use regional::routing::restarts as regional_restarts;
 pub use regional::{RegionalProposal, RegionalSearch};
 mod regional_trial;
 pub use regional_trial::{RegionalEvidence, RegionalTrial, regional_trial};
+pub mod engine;
+pub use engine::MetalEngine;
 use shapes::*;
 const TILE_ELEMENTS: usize = baux::semantics::dispatch::TILE_ELEMENTS as usize;
 const MAX_HISTORY: usize = crate::objective_observation::OBJECTIVE_CAPACITY;

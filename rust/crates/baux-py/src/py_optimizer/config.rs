@@ -147,7 +147,7 @@ pub fn parse_dict(dict: &Bound<'_, pyo3::types::PyDict>) -> PyResult<baux::confi
         config.index_driver = Some(drv);
     }
     if let Some(s) = opt_val::<String>(dict, "acquisition")? {
-        let beta = opt_val::<f64>(dict, "acquisition_beta")?.unwrap_or(2.0);
+        let beta = opt_val::<f64>(dict, "acquisition_beta")?.unwrap_or(1.0);
         let acq = match s.as_str() {
             "ucb" => AcquisitionConfig::UCB { beta },
             "thompson" => AcquisitionConfig::Thompson,

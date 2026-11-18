@@ -30,7 +30,7 @@ assert np.array_equal(baux.ask(state, 2)[1].points, baux.ask(restored, 2)[1].poi
 print(f"Checkpoint freeze/thaw verified: bytes={len(raw)} epoch={restored.epoch} digest={baux.digest(restored)[:16]}...")
 }
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L285)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L273)}
 }
 
 \<section>[id]{baux.thaw}[class]{api-entry}[data-symbol]{baux.thaw}[data-kind]{function}[data-module]{baux.state}{
@@ -41,7 +41,7 @@ baux.thaw(state: OptimizerState, data: bytes) -> OptimizerState
   \p{Restore a checkpoint against a compatible state template.}
   \p{\code{state}: a state initialized with the expected domain and configuration. \code{data}: bytes from \code{freeze}. Returns the restored \code{OptimizerState}.}
   \p{Checks the format, integrity and compatibility; malformed or incompatible payloads are rejected. To reproduce subsequent proposals, preserve the evaluator results and their submission order too.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L305)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L293)}
 }
 
 \<section>[id]{baux.digest}[class]{api-entry}[data-symbol]{baux.digest}[data-kind]{function}[data-module]{baux.state}{
@@ -51,7 +51,7 @@ baux.digest(state: OptimizerState) -> str
   }
   \p{Get the optimizer state's content digest.}
   \p{Returns a 64-character hexadecimal string identifying the optimizer state.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L280)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/state.py#L268)}
 }
 
 \<section>[id]{baux.key}[class]{api-entry}[data-symbol]{baux.key}[data-kind]{function}[data-module]{baux.state}{
@@ -61,7 +61,7 @@ baux.key(source: Any = None) -> Any
   }
   \p{Create a random key or retrieve one from a state.}
   \p{\code{source} may be an integer seed, bytes, an array or an object exposing \code{key}. With \code{None}, draws fresh operating-system entropy. Returns a \code{Key}.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L61)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L62)}
 }
 
 \<section>[id]{baux.Key}[class]{api-entry}[data-symbol]{baux.Key}[data-kind]{class}[data-module]{baux.state}{
@@ -81,7 +81,7 @@ baux.split(k: Any, n: int = 2) -> tuple[Any, ...]
   }
   \p{Derive child keys from a parent key.}
   \p{Returns a tuple of \code{n} keys without changing \code{k}. Default \code{n=2}. Use a different child for each search branch or draw stream.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L72)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L73)}
 }
 
 \<section>[id]{baux.fold}[class]{api-entry}[data-symbol]{baux.fold}[data-kind]{function}[data-module]{baux.state}{
@@ -91,7 +91,7 @@ baux.fold(k: Any, tag: int) -> Any
   }
   \p{Derive a key using an integer tag.}
   \p{Returns a new key. The tag is reduced modulo \code{2**64}; the parent is unchanged. Useful for giving a step or branch a repeatable key.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L81)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L82)}
 }
 
 \<section>[id]{baux.scan}[class]{api-entry}[data-symbol]{baux.scan}[data-kind]{function}[data-module]{baux.state}{
@@ -143,7 +143,7 @@ assert [r[0] for r in results] == [0, 1, 2]
 print(f"step/scan/pmap verified: scan_obs={final_state.num_observations} best_y={final_state.best_y:.4f} pmap_batches={len(results)}")
 }
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L383)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L388)}
 }
 
 \<section>[id]{baux.pmap}[class]{api-entry}[data-symbol]{baux.pmap}[data-kind]{function}[data-module]{baux.state}{
@@ -159,5 +159,5 @@ baux.pmap(
   \p{Run independent search branches in worker threads.}
   \p{Calls \code{branch_fn(index, branch_state, branch_key)} once per branch and returns results in branch-index order. Each branch starts from \code{state.fork(child_key)}.}
   \p{\code{branches} must be non-negative; zero returns an empty list. This is a local thread pool, not a device mapping or distributed scheduler. Evaluator thread safety remains the caller's responsibility.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L420)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/functional.py}](https://github.com/Kvutza/baux/blob/main/python/baux/functional.py#L425)}
 }

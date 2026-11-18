@@ -192,7 +192,7 @@ fn parse_acquisition(name: Option<&str>, beta: Option<f64>) -> PyResult<Option<A
     };
     let acquisition = match name {
         "ucb" => {
-            let beta = beta.unwrap_or(2.0);
+            let beta = beta.unwrap_or(1.0);
             if !beta.is_finite() || beta <= 0.0 {
                 return Err(PyValueError::new_err(
                     "regional UCB beta must be finite and > 0",
@@ -235,19 +235,16 @@ fn build_state(
     Ok(baux::Strategy::Experimental(state))
 }
 
-pub(super) fn build(
-    bounds: ndarray::Array2<f64>,
+pub(super) fn config_strategy(
+    dimension: usize,
     kind: &str,
     k: i32,
     num_init: usize,
     num_regions: usize,
     runtime: Option<&baux::config::RunConfig>,
     dict: &Bound<'_, pyo3::types::PyDict>,
-    gp: Option<Py<PyAny>>,
-    gp_factory: Option<Py<PyAny>>,
-    fit_steps: usize,
     rng: &mut baux::Prng,
-) -> PyResult<baux::BayesOptimizer> {
+) -> PyResult<(baux::OptimizerConfig, baux::Strategy)> {
     let mut config = match kind {
         "enn" | "enn_multi_tr" => baux::turbo_enn(),
         "zero" | "gp" => baux::turbo_zero(),
@@ -267,8 +264,34 @@ pub(super) fn build(
         opt_val(dict, "length_min")?.unwrap_or(0.5_f64.powi(7)),
         opt_val(dict, "length_max")?.unwrap_or(1.6),
     );
-    let dimension = bounds.nrows();
     let strategy = build_state(num_regions, num_init, length, dict, dimension, rng)?;
+    Ok((config, strategy))
+}
+
+pub(super) fn build(
+    bounds: ndarray::Array2<f64>,
+    kind: &str,
+    k: i32,
+    num_init: usize,
+    num_regions: usize,
+    runtime: Option<&baux::config::RunConfig>,
+    dict: &Bound<'_, pyo3::types::PyDict>,
+    gp: Option<Py<PyAny>>,
+    gp_factory: Option<Py<PyAny>>,
+    fit_steps: usize,
+    rng: &mut baux::Prng,
+) -> PyResult<baux::BayesOptimizer> {
+    let dimension = bounds.nrows();
+    let (config, strategy) = config_strategy(
+        dimension,
+        kind,
+        k,
+        num_init,
+        num_regions,
+        runtime,
+        dict,
+        rng,
+    )?;
     let result = if kind == "gp" {
         build_gp(bounds, config, strategy, gp, gp_factory, fit_steps, rng)
     } else {

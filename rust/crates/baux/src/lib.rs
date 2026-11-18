@@ -118,6 +118,7 @@ pub mod trials;
 pub mod trust_region;
 pub mod typestate;
 pub mod unified_mem;
+pub mod unified_opt;
 pub mod util;
 pub mod webgpu;
 pub mod weights;
@@ -188,8 +189,10 @@ pub use optimizer_config::{
 pub use optimizer_factory::{create_lhd, create_optimizer, enn_optimizer};
 pub use params::{ENNNormal, ENNParams, ParamsError, PosteriorFlags};
 pub use pipeline::{
-    AcqStage, Active, DesignPipe, Fitted, InitStage, ModelStage, PerturbStage, Pipeline,
-    ProposalTicket, SurrogatePipe, TypedOptimizer, TypedSurrogate, Unfitted, Warmup,
+    AcqStage, Active, AnyBackend, CpuBackend, CudaBackend, DesignPipe, Fitted, InitStage,
+    MetalBackend, ModelStage, OptBackend, Pending, PerturbStage, Pipeline, ProposalTicket, Ready,
+    StepTrace, SurrogatePipe, TypedOptimizer, TypedSurrogate, Unfitted, UnifiedEngine, Warmup,
+    pmap_branches, scan_step,
 };
 pub use posterior::{Pool, TopK, WeightedPosteriorData, compute_internals, conditional_internals};
 pub use proposal_distribution::{CoordSystem, ProposalDistribution, ProposalKernel};

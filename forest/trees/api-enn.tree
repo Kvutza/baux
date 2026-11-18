@@ -52,7 +52,7 @@ assert len(state2) == 6
 print("posterior mu:", np.round(post.mu[:, 0], 4), "se_epi:", np.round(post.se_epi[:, 0], 4))
 }
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L841)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L843)}
 }
 
 \<section>[id]{baux.append}[class]{api-entry}[data-symbol]{baux.append}[data-kind]{function}[data-module]{baux.functional}{
@@ -71,7 +71,7 @@ baux.append(state: ENNState, x: Any, y: Any, y_var: Any = None) -> ENNState
     \<dt>{Returns}
     \<dd>{A new \code{ENNState} containing the old and new rows.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L923)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L925)}
 }
 
 \<section>[id]{baux.fit}[class]{api-entry}[data-symbol]{baux.fit}[data-kind]{function}[data-module]{baux.functional}{
@@ -92,7 +92,7 @@ baux.fit(
   \p{Fit ENN variance scales for a neighbor count.}
   \p{Returns \code{ENNParams}; the dataset is unchanged. \code{k}: number of neighbors. \code{num_candidates}: parameter-search budget. \code{num_samples}: leave-one-out sample budget.}
   \p{\code{infer_aleatoric} controls fitting the aleatoric scale. \code{warm} supplies previous parameters. \code{key} takes precedence over \code{seed}.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L981)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L983)}
 }
 
 \<section>[id]{baux.posterior}[class]{api-entry}[data-symbol]{baux.posterior}[data-kind]{function}[data-module]{baux.functional}{
@@ -118,7 +118,7 @@ baux.posterior(
     \<dt>{Returns}
     \<dd>{An \code{ENNNormal} with \code{mu}, \code{se}, \code{se_epi} and \code{se_ale} arrays of shape \code{(Q, M)}.}
   }
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L947)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L949)}
 }
 
 \<section>[id]{baux.sample}[class]{api-entry}[data-symbol]{baux.sample}[data-kind]{function}[data-module]{baux.functional}{
@@ -139,7 +139,7 @@ baux.sample(
   \p{\code{x}: \code{(Q, D)} queries. Returns \code{(draws, neighbor_ids)}; \code{draws} has shape \code{(Q, M, S)}.}
   \p{\code{num_draws} sets \code{S} when seeds are generated from \code{key}. Explicit \code{seeds} overrides that generation and determines the draw count. Reusing function seeds couples queries through shared observation-level randomness.}
   \p{\code{flags} has the same meaning as in \code{posterior}; observation noise is excluded by default.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L954)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L956)}
 }
 
 \<section>[id]{baux.ensure_sync}[class]{api-entry}[data-symbol]{baux.ensure_sync}[data-kind]{function}[data-module]{baux.enn.enn_state}{
@@ -149,7 +149,7 @@ baux.ensure_sync(state: ENNState) -> ENNState
   }
   \p{Synchronize pending observations with the neighbor index.}
   \p{Flushes pending data to the search index and returns an updated \code{ENNState}.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L1022)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L1024)}
 }
 
 \<section>[id]{baux.persist_index}[class]{api-entry}[data-symbol]{baux.persist_index}[data-kind]{function}[data-module]{baux.enn.enn_state}{
@@ -159,7 +159,7 @@ baux.persist_index(state: ENNState) -> ENNState
   }
   \p{Persist the neighbor index to disk storage.}
   \p{Commits indexed points to backing files and returns an updated \code{ENNState}.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L1036)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L1038)}
 }
 
 \<section>[id]{baux.ENNState}[class]{api-entry}[data-symbol]{baux.ENNState}[data-kind]{class}[data-module]{baux.enn}{

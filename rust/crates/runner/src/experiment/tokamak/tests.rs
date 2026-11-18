@@ -142,8 +142,7 @@ failure-tolerance = 3
     let mut half_cfg = cfg_e.clone();
     half_cfg.rounds = 2;
     let seed = baux::tune_seed(&half_cfg.experiment, "proposal", 0, 0);
-    let mut init_rng = prng(seed);
-    let mut opt = make_opt(&half_cfg, Some(&dir), 0, &mut init_rng).expect("make opt");
+    let mut opt = make_opt(&half_cfg, Some(&dir), 0, seed).expect("make opt");
     let dom = exp_domain(&half_cfg);
     let mut st = LiveCkpt::empty(2);
     st.elapsed_seconds = 0.1;
@@ -168,6 +167,12 @@ failure-tolerance = 3
         st.completed_round = round;
     }
     save_live(&dir, 0, &opt, &st).expect("save live ckpt");
+    let tpl = make_opt(&cfg_e, Some(&dir), 0, seed).expect("make template");
+    let (thawed, thawed_st) = load_live(&dir, 0, seed, tpl)
+        .expect("load live")
+        .expect("live ckpt present");
+    assert_eq!(thawed_st.completed_round, 2);
+    assert_eq!(thawed.digest(), opt.digest());
 
     // Also verify zero-simulator-call deterministic replay when seed_0_opt.bin
     // is absent (long-run >64MB observation regime).
@@ -520,10 +525,14 @@ failure-tolerance = 1
     assert!(err_hs.contains("21201") && err_ms.contains("21201"));
 
     let small_bounds = Array2::from_shape_fn((32, 2), |(_, j)| if j == 0 { -1.0 } else { 1.0 });
-    let small_dom = DomainFrame::new(small_bounds).expect("32d domain");
-    let mut sb_rng = prng(91);
-    let mut sb_opt =
-        BayesOptimizer::from_domain(small_dom, &cfg_s.optimizer, 0, &mut sb_rng).expect("host 32d");
+    let mut sb_opt = UnifiedEngine::from_spec(
+        small_bounds,
+        &cfg_s.optimizer,
+        0,
+        AnyBackend::Cpu,
+        baux::Key::new(91),
+    )
+    .expect("host 32d");
     for r in 1..=6 {
         let mut sr = round_rng(91, r);
         let (next_opt, u) = sb_opt.ask(4, &mut sr).expect("sobol ask 4");
@@ -571,4 +580,107 @@ failure-tolerance = 1
     .expect("32d sobol metal job");
     assert_eq!(st_s.best_scores.len(), 6);
     assert!(st_s.best_score.is_finite());
+}
+
+fn drive_typed<B: OptBackend>(
+    cfg: &Config,
+    backend: B,
+    seed: u64,
+) -> (&'static str, Vec<baux::StepTrace>, f64, [u8; 32]) {
+    let key = AffineKey::new(seed);
+    let (warmup, key) = typed_warmup(cfg, backend, key).expect("typed warmup");
+    let dev = warmup.device_name();
+    let (x0, warmup, key) = warmup.design_step(2, key).expect("design step");
+    let s0 = x0.as_slice_memory_order().expect("contiguous design");
+    let v0 = eval_batch(&mut None, s0, x0.nrows()).expect("eval warmup");
+    let y0 = Array2::from_shape_fn((v0.len(), 1), |(i, _)| v0[i]);
+    let (ready, key) = warmup
+        .activate_ready(&x0.view(), &y0.view(), key)
+        .expect("activate ready");
+    let forked = ready.clone();
+    assert!(ready.shares_storage(&forked));
+    let fork_digest = forked.digest();
+
+    let (ready_end, key, traces) = baux::scan_step(ready, key, 3, 2, |_, x| {
+        let sl = x.as_slice_memory_order().expect("contiguous batch");
+        let scs = eval_batch(&mut None, sl, x.nrows()).expect("eval active");
+        Ok(Array2::from_shape_fn((scs.len(), 1), |(i, _)| scs[i]))
+    })
+    .expect("scan step");
+    let _ = key.into_key();
+    assert_eq!(forked.digest(), fork_digest);
+    let best = ready_end.best_y().expect("incumbent y");
+    (dev, traces, best, ready_end.digest())
+}
+
+#[test]
+fn unified_backends() {
+    let toml_str = r#"
+version = 4
+experiment = "tokamak-tcv"
+rounds = 4
+
+[optimizer]
+algorithm = "bayesian-search"
+candidates = 32
+arms = 2
+acquisition = "upper-confidence-bound"
+
+[optimizer.perturbation]
+sampler = "raasp"
+num-pert = 32
+raasp-fast = true
+
+[optimizer.surrogate]
+metric = "hyperbolic"
+local-neighbors = 2
+neighbors = 2
+fit = "fixed"
+
+[optimizer.trust-region]
+initial = 0.8
+min = 0.125
+max = 1.6
+
+[optimizer.regional-search]
+count = 2
+sharing = "box-contain"
+allocation = "incumbent-ucb1"
+controller = "turbo"
+success-tolerance = 2
+failure-tolerance = 3
+"#;
+    let mut cfg: Config = baux::artifact::toml::from_str(toml_str).expect("parse tokagym unified");
+    let (dev_c, tr_c, best_c, dig_c) = drive_typed(&cfg, baux::CpuBackend, 404);
+    let (dev_a, tr_a, best_a, dig_a) = drive_typed(&cfg, AnyBackend::Cpu, 404);
+    assert_eq!(dev_c, "cpu");
+    assert_eq!(dev_a, "cpu");
+    assert_eq!(tr_c.len(), 3);
+    assert_eq!(dig_c, dig_a);
+    assert_eq!(best_c, best_a);
+    assert!(best_c.is_finite());
+
+    cfg.backend = Backend::HostRam;
+    let host_rep = run_opt(&cfg, None, None).expect("run_opt host");
+    assert_eq!(host_rep["rounds"], 4);
+    assert_eq!(host_rep["regions"], 2);
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        let (dev_m, tr_m, best_m, dig_m) = drive_typed(&cfg, baux::MetalBackend, 404);
+        let (dev_am, tr_am, best_am, dig_am) = drive_typed(&cfg, AnyBackend::Metal, 404);
+        assert_eq!(dev_m, "metal");
+        assert_eq!(dev_am, "metal");
+        assert_eq!(tr_m.len(), 3);
+        assert_eq!(dig_m, dig_am);
+        assert_eq!(best_m, best_am);
+        assert!(best_m.is_finite());
+        assert!(tr_am.windows(2).all(|w| w[1].best_y >= w[0].best_y));
+
+        cfg.backend = Backend::ResidentMetal;
+        let metal_rep = run_opt(&cfg, None, None).expect("run_opt metal");
+        assert_eq!(metal_rep["rounds"], 4);
+        assert_eq!(metal_rep["regions"], 2);
+        assert!(metal_rep["final_score_mean"].as_f64().unwrap().is_finite());
+    }
 }

@@ -42,6 +42,11 @@ impl SearchState {
         fresh_scratch(&self.runtime, &mut self.axis_candidates_gpu);
         fresh_scratch(&self.runtime, &mut self.decision);
         fresh_scratch(&self.runtime, &mut self.pool_distances);
+        if let Some(selector) = &mut self.objective_selector {
+            fresh_scratch(&self.runtime, &mut selector.parameters);
+            fresh_scratch(&self.runtime, &mut selector.report);
+            fresh_scratch(&self.runtime, &mut selector.vectors);
+        }
     }
 
     pub fn propose(

@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::Instant;
 
+use baux::AnyBackend;
 use baux::artifact::inc;
 use baux::artifact::study;
 use baux::artifact::toml;
@@ -13,15 +14,13 @@ use super::broker::EvalBroker;
 use super::digest;
 use super::import;
 use super::observer;
-use crate::experiment::julia::config::Config as JuliaConfig;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use crate::experiment::julia::config::{Backend, Config as JuliaConfig};
 use crate::experiment::julia::metal;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use crate::experiment::julia::metal_step;
+use crate::experiment::julia::mode::metal_ok;
 
 pub enum RunnerFiber {
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    Metal(metal_step::MetalFiber),
+    Unified(metal_step::MetalFiber),
     Synthetic {
         round: usize,
         best_score: f64,
@@ -33,8 +32,7 @@ pub enum RunnerFiber {
 impl RunnerFiber {
     fn prepare_proposal(&mut self) -> Result<Vec<u16>, String> {
         match self {
-            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-            Self::Metal(m) => m.prepare_proposal(),
+            Self::Unified(m) => m.prepare_proposal(),
             Self::Synthetic { round, num_dim, .. } => {
                 let r = (*round + 1) as u16;
                 Ok(vec![r.wrapping_mul(1009); *num_dim])
@@ -48,8 +46,7 @@ impl RunnerFiber {
         loss_fn: &dyn Fn(f64) -> f64,
     ) -> Result<inc::StepRecord, String> {
         match self {
-            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-            Self::Metal(m) => m.commit_eval(outcome, loss_fn),
+            Self::Unified(m) => m.commit_eval(outcome, loss_fn),
             Self::Synthetic {
                 round,
                 best_score,
@@ -81,8 +78,7 @@ impl RunnerFiber {
         loss_fn: &dyn Fn(f64) -> f64,
     ) -> Result<(), String> {
         match self {
-            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-            Self::Metal(m) => m.replay_prefix(steps, loss_fn),
+            Self::Unified(m) => m.replay_prefix(steps, loss_fn),
             Self::Synthetic {
                 round,
                 best_score,
@@ -100,38 +96,55 @@ impl RunnerFiber {
     }
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-fn metal_spec(
+fn resolve_backend(root: &Path, cfg: &JuliaConfig, cell_id: &str, rep: u32) -> AnyBackend {
+    match cfg.backend {
+        Backend::ResidentMetal => AnyBackend::Metal,
+        Backend::HostRam => AnyBackend::Cpu,
+        Backend::HostDisk => AnyBackend::disk(
+            root.join(".cache/baux/incremental/bpann")
+                .join(format!("{cell_id}_rep{rep}")),
+        ),
+        Backend::Auto => {
+            if metal_ok(cfg).is_ok() {
+                AnyBackend::Metal
+            } else {
+                AnyBackend::Cpu
+            }
+        }
+    }
+}
+
+pub(super) fn cell_spec(
     root: &Path,
     cell: &study::StudyCell,
     rep: u32,
     target_rounds: usize,
 ) -> Result<metal_step::MetalJobSpec, String> {
     let cfg: JuliaConfig = toml::from_str(&cell.canonical_toml).map_err(|e| e.to_string())?;
-    let (num_dim, n_obj) = if cell.experiment.starts_with("tokamak") {
-        if cell.experiment == "tokamak-tokagym" {
-            (baux_tokamak::TOKAGYM_PARAMS, 1)
+    let (domain, n_obj) = if cell.experiment.starts_with("tokamak") {
+        let dom = if cell.experiment == "tokamak-tokagym" {
+            baux_tokamak::tokagym_domain()
         } else {
-            (baux_tokamak::TOTAL_PARAMS, 1)
-        }
+            baux_tokamak::domain_frame()
+        };
+        (dom, 1)
     } else {
-        let (domain, _, _, _) = crate::experiment::julia::space::resolve_space(root, &cfg)?;
-        (
-            domain.num_dim(),
-            crate::experiment::julia::config::obj_count(&cfg),
-        )
+        let (dom, _, _, _) = crate::experiment::julia::space::resolve_space(root, &cfg)?;
+        (dom, crate::experiment::julia::config::obj_count(&cfg))
     };
     let seed = baux::tune_seed(&cell.experiment, "proposal", rep, 0);
     let cfg_opt = crate::experiment::julia::driver::opt_cfg(&cfg, n_obj)?;
-    metal_step::MetalJobSpec::from_parts(
+    let backend = resolve_backend(root, &cfg, &cell.cell_id, rep);
+    metal_step::MetalJobSpec::with_backend(
         rep,
         seed,
-        num_dim,
+        domain,
         n_obj,
         target_rounds,
         &cfg.optimizer,
         cfg_opt,
         metal::objective_policy(&cfg, n_obj, seed),
+        backend,
     )
 }
 
@@ -154,30 +167,13 @@ fn create_fiber(
             16,
         ));
     }
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    {
-        let spec = metal_spec(root, cell, rep, target_rounds)?;
-        let dim = spec.num_dim;
-        Ok((
-            RunnerFiber::Metal(metal_step::MetalFiber::new(spec)),
-            seed,
-            dim,
-        ))
-    }
-    #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-    {
-        let _ = (root, cell, rep, target_rounds);
-        Ok((
-            RunnerFiber::Synthetic {
-                round: 0,
-                best_score: f64::NEG_INFINITY,
-                best_viol: 0.0,
-                num_dim: 16,
-            },
-            seed,
-            16,
-        ))
-    }
+    let spec = cell_spec(root, cell, rep, target_rounds)?;
+    let dim = spec.num_dim;
+    Ok((
+        RunnerFiber::Unified(metal_step::MetalFiber::new(spec)),
+        seed,
+        dim,
+    ))
 }
 
 pub fn plan_execution(

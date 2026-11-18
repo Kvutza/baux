@@ -1,6 +1,8 @@
 //! Resident CUDA TuRBO-ENN, TuRBO-Zero, MORBO (`OnRestart` + `OnPropose`), and
 //! multi-trust-region (`RegionalCuda`) drivers backed by `baux::semantics`.
 
+use std::sync::Arc;
+
 use baux::semantics::key::Key;
 use baux::semantics::morbo::{
     RescalarizeMode, metric_ranges, nds_ranks, sample_simplex, scalarize_slice,
@@ -8,10 +10,10 @@ use baux::semantics::morbo::{
 use baux::semantics::neighbor::{
     DistanceMetric, MetricKind, UncertaintyLaw, ard_sides, region_bounds, simd_l2,
 };
+pub use baux::semantics::optimizer::portfolio::RegionTicket;
 use baux::semantics::optimizer::portfolio::{
-    Allocation, RegionController, RegionTicket, RegionalLedger, RestartCenterPolicy,
-    RestartCenterSelection, RestartMemoryPolicy, SharingPolicy, joint_select, maximin_idx,
-    retain_mask,
+    Allocation, RegionController, RegionalLedger, RestartCenterPolicy, RestartCenterSelection,
+    RestartMemoryPolicy, SharingPolicy, joint_select, maximin_idx, retain_mask,
 };
 use baux::semantics::optimizer::surrogate::{AcquisitionRule, BetterScore, loo_slice};
 use baux::semantics::optimizer::trust_region::{
@@ -164,17 +166,60 @@ fn warp_outcome(raw_y: f32, raw_v: Option<f32>, yb: Option<&[[f32; 2]]>) -> Cuda
     Ok((z, zv))
 }
 
+fn clone_gpu(
+    pair: &Option<(CudaIndex, Option<CudaScratch>)>,
+) -> Option<(CudaIndex, Option<CudaScratch>)> {
+    pair.as_ref().map(|(idx, _)| (idx.clone(), None))
+}
+
+fn ensure_scratch<'a>(
+    pair: &'a mut (CudaIndex, Option<CudaScratch>),
+) -> CudaResult<(&'a CudaIndex, &'a mut CudaScratch)> {
+    if pair.1.is_none() {
+        pair.1 = Some(pair.0.new_scratch()?);
+    }
+    Ok((&pair.0, pair.1.as_mut().expect("initialized scratch")))
+}
+
+fn push_reals(buf: &mut Vec<u8>, vals: &[f32]) {
+    buf.extend_from_slice(&(vals.len() as u64).to_le_bytes());
+    for &v in vals {
+        let bits = if v == 0.0 { 0u32 } else { v.to_bits() };
+        buf.extend_from_slice(&bits.to_le_bytes());
+    }
+}
+
 pub struct TurboCuda {
     pub spec: TurboSpec,
     state: TurboState,
     step: u32,
-    rows: Vec<f32>,
-    raw_y: Vec<f32>,
-    latent_y: Vec<f32>,
-    latent_v: Vec<f32>,
+    rows: Arc<Vec<f32>>,
+    raw_y: Arc<Vec<f32>>,
+    latent_y: Arc<Vec<f32>>,
+    latent_v: Arc<Vec<f32>>,
     has_var: bool,
     inc_idx: usize,
-    gpu: Option<(CudaIndex, CudaScratch)>,
+    gpu: Option<(CudaIndex, Option<CudaScratch>)>,
+}
+
+unsafe impl Send for TurboCuda {}
+unsafe impl Sync for TurboCuda {}
+
+impl Clone for TurboCuda {
+    fn clone(&self) -> Self {
+        Self {
+            spec: self.spec.clone(),
+            state: self.state,
+            step: self.step,
+            rows: Arc::clone(&self.rows),
+            raw_y: Arc::clone(&self.raw_y),
+            latent_y: Arc::clone(&self.latent_y),
+            latent_v: Arc::clone(&self.latent_v),
+            has_var: self.has_var,
+            inc_idx: self.inc_idx,
+            gpu: clone_gpu(&self.gpu),
+        }
+    }
 }
 
 impl TurboCuda {
@@ -197,10 +242,10 @@ impl TurboCuda {
             spec,
             state,
             step: 0,
-            rows: Vec::new(),
-            raw_y: Vec::new(),
-            latent_y: Vec::new(),
-            latent_v: Vec::new(),
+            rows: Arc::new(Vec::new()),
+            raw_y: Arc::new(Vec::new()),
+            latent_y: Arc::new(Vec::new()),
+            latent_v: Arc::new(Vec::new()),
             has_var: false,
             inc_idx: 0,
             gpu: None,
@@ -211,8 +256,42 @@ impl TurboCuda {
         let mut opt = Self::new(spec)?;
         let idx = CudaIndex::with_mode(opt.spec.num_dim, &[], mode)?;
         let scratch = idx.new_scratch()?;
-        opt.gpu = Some((idx, scratch));
+        opt.gpu = Some((idx, Some(scratch)));
         Ok(opt)
+    }
+
+    pub fn fork(&self) -> Self {
+        self.clone()
+    }
+
+    pub fn shares_storage(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.rows, &other.rows) && Arc::ptr_eq(&self.raw_y, &other.raw_y)
+    }
+
+    pub fn rows(&self) -> &[f32] {
+        &self.rows
+    }
+
+    pub fn outcomes(&self) -> &[f32] {
+        &self.raw_y
+    }
+
+    pub fn tr_length(&self) -> f64 {
+        self.state.length
+    }
+
+    pub fn digest(&self) -> [u8; 32] {
+        let mut buf = Vec::with_capacity(128 + self.rows.len() * 4 + self.raw_y.len() * 4);
+        buf.extend_from_slice(b"TurboCuda");
+        buf.extend_from_slice(&self.spec.seed.to_le_bytes());
+        buf.extend_from_slice(&self.step.to_le_bytes());
+        buf.extend_from_slice(&self.state.length.to_bits().to_le_bytes());
+        buf.extend_from_slice(&(self.state.success_count as u64).to_le_bytes());
+        buf.extend_from_slice(&(self.state.failure_count as u64).to_le_bytes());
+        buf.extend_from_slice(&(self.inc_idx as u64).to_le_bytes());
+        push_reals(&mut buf, &self.rows);
+        push_reals(&mut buf, &self.raw_y);
+        baux::artifact::blake3::hash(&buf)
     }
 
     pub fn len(&self) -> usize {
@@ -374,10 +453,11 @@ impl TurboCuda {
         };
         let mods = self.round_mods();
         let var_opt = (self.spec.noise_aware && self.has_var).then_some(self.latent_v.as_slice());
-        let (idx, scratch) = self
+        let pair = self
             .gpu
             .as_mut()
             .ok_or_else(|| "TurboCuda::propose_fenced requires GPU index (with_gpu)".to_string())?;
+        let (idx, scratch) = ensure_scratch(pair)?;
         let out = idx.propose_fenced(
             scratch,
             &plan,
@@ -390,6 +470,13 @@ impl TurboCuda {
         )?;
         self.step = self.step.wrapping_add(1);
         Ok(out)
+    }
+
+    pub fn ask_seeded(&mut self, seed: u64, arms: usize) -> CudaResult<ProposalHost> {
+        self.spec.seed = seed;
+        self.spec.num_arms = arms.max(1);
+        self.spec.num_candidates = self.spec.num_candidates.max(self.spec.num_arms);
+        self.ask()
     }
 
     pub fn ask(&mut self) -> CudaResult<ProposalHost> {
@@ -443,27 +530,35 @@ impl TurboCuda {
         };
         let yb = self.spec.mods.ybounds.as_deref();
         let mut improved = false;
+        let rows_mut = Arc::make_mut(&mut self.rows);
+        let raw_mut = Arc::make_mut(&mut self.raw_y);
+        let lat_y_mut = Arc::make_mut(&mut self.latent_y);
+        let lat_v_mut = Arc::make_mut(&mut self.latent_v);
         for (i, &y) in outcomes.iter().enumerate() {
             let v_in = variances.map(|v| v[i]);
             let (zy, zv) = warp_outcome(y, v_in, yb)?;
-            let idx = self.raw_y.len();
-            self.rows.extend_from_slice(&new_rows[i * d..(i + 1) * d]);
-            self.raw_y.push(y);
-            self.latent_y.push(zy);
-            self.latent_v.push(zv);
+            let idx = raw_mut.len();
+            rows_mut.extend_from_slice(&new_rows[i * d..(i + 1) * d]);
+            raw_mut.push(y);
+            lat_y_mut.push(zy);
+            lat_v_mut.push(zv);
             if variances.is_some() {
                 self.has_var = true;
             }
-            if idx == 0 || BetterScore(y) > BetterScore(self.raw_y[self.inc_idx]) {
+            if idx == 0 || BetterScore(y) > BetterScore(raw_mut[self.inc_idx]) {
                 self.inc_idx = idx;
             }
             if prev_best.is_finite() && y > prev_best {
                 improved = true;
             }
         }
-        if let Some((gpu_idx, mut scratch)) = self.gpu.take() {
+        if let Some((gpu_idx, scratch_opt)) = self.gpu.take() {
+            let mut scratch = match scratch_opt {
+                Some(s) => s,
+                None => gpu_idx.new_scratch()?,
+            };
             let next_idx = gpu_idx.add(&mut scratch, new_rows)?;
-            self.gpu = Some((next_idx, scratch));
+            self.gpu = Some((next_idx, Some(scratch)));
         }
         if self.len() > self.spec.warmup_obs
             && self.spec.mode != TurboMode::LhdOnly
@@ -491,14 +586,37 @@ pub struct MorboCuda {
     pub num_regions: usize,
     pub rescalarize: RescalarizeMode,
     pub alpha: f32,
-    regions: Vec<MorboRegion>,
+    regions: Arc<Vec<MorboRegion>>,
     step: u32,
-    rows: Vec<f32>,
-    raw_y: Vec<f32>,
-    latent_y: Vec<f32>,
-    latent_v: Vec<f32>,
+    rows: Arc<Vec<f32>>,
+    raw_y: Arc<Vec<f32>>,
+    latent_y: Arc<Vec<f32>>,
+    latent_v: Arc<Vec<f32>>,
     has_var: bool,
-    gpu: Option<(CudaIndex, CudaScratch)>,
+    gpu: Option<(CudaIndex, Option<CudaScratch>)>,
+}
+
+unsafe impl Send for MorboCuda {}
+unsafe impl Sync for MorboCuda {}
+
+impl Clone for MorboCuda {
+    fn clone(&self) -> Self {
+        Self {
+            spec: self.spec.clone(),
+            num_metrics: self.num_metrics,
+            num_regions: self.num_regions,
+            rescalarize: self.rescalarize,
+            alpha: self.alpha,
+            regions: Arc::clone(&self.regions),
+            step: self.step,
+            rows: Arc::clone(&self.rows),
+            raw_y: Arc::clone(&self.raw_y),
+            latent_y: Arc::clone(&self.latent_y),
+            latent_v: Arc::clone(&self.latent_v),
+            has_var: self.has_var,
+            gpu: clone_gpu(&self.gpu),
+        }
+    }
 }
 
 impl MorboCuda {
@@ -539,12 +657,12 @@ impl MorboCuda {
             num_regions,
             rescalarize,
             alpha,
-            regions,
+            regions: Arc::new(regions),
             step: 0,
-            rows: Vec::new(),
-            raw_y: Vec::new(),
-            latent_y: Vec::new(),
-            latent_v: Vec::new(),
+            rows: Arc::new(Vec::new()),
+            raw_y: Arc::new(Vec::new()),
+            latent_y: Arc::new(Vec::new()),
+            latent_v: Arc::new(Vec::new()),
             has_var: false,
             gpu: None,
         })
@@ -561,8 +679,47 @@ impl MorboCuda {
         let mut m = Self::new(spec, num_metrics, num_regions, rescalarize, alpha)?;
         let idx = CudaIndex::with_mode(m.spec.num_dim, &[], mode)?;
         let scratch = idx.new_scratch()?;
-        m.gpu = Some((idx, scratch));
+        m.gpu = Some((idx, Some(scratch)));
         Ok(m)
+    }
+
+    pub fn fork(&self) -> Self {
+        self.clone()
+    }
+
+    pub fn shares_storage(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.rows, &other.rows)
+            && Arc::ptr_eq(&self.raw_y, &other.raw_y)
+            && Arc::ptr_eq(&self.regions, &other.regions)
+    }
+
+    pub fn rows(&self) -> &[f32] {
+        &self.rows
+    }
+
+    pub fn outcomes(&self) -> &[f32] {
+        &self.raw_y
+    }
+
+    pub fn tr_length(&self) -> f64 {
+        self.regions.first().map_or(0.8, |r| r.state.length)
+    }
+
+    pub fn digest(&self) -> [u8; 32] {
+        let mut buf = Vec::with_capacity(128 + self.rows.len() * 4 + self.raw_y.len() * 4);
+        buf.extend_from_slice(b"MorboCuda");
+        buf.extend_from_slice(&self.spec.seed.to_le_bytes());
+        buf.extend_from_slice(&self.step.to_le_bytes());
+        buf.extend_from_slice(&(self.num_metrics as u64).to_le_bytes());
+        buf.extend_from_slice(&(self.num_regions as u64).to_le_bytes());
+        for reg in self.regions.iter() {
+            buf.extend_from_slice(&reg.state.length.to_bits().to_le_bytes());
+            buf.extend_from_slice(&(reg.restarts as u64).to_le_bytes());
+            push_reals(&mut buf, &reg.weights);
+        }
+        push_reals(&mut buf, &self.rows);
+        push_reals(&mut buf, &self.raw_y);
+        baux::artifact::blake3::hash(&buf)
     }
 
     pub fn len(&self) -> usize {
@@ -618,8 +775,9 @@ impl MorboCuda {
                 best_i = i;
             }
         }
-        self.regions[reg].inc_idx = best_i;
-        self.regions[reg].best_val = scal[best_i];
+        let regs = Arc::make_mut(&mut self.regions);
+        regs[reg].inc_idx = best_i;
+        regs[reg].best_val = scal[best_i];
     }
 
     fn prepare_region(&mut self, reg: usize) -> CudaResult<(RoundPlan, Vec<f32>, PoolModifiers)> {
@@ -630,7 +788,8 @@ impl MorboCuda {
             .fold(u64::from(self.step))
             .fold(reg as u64);
         if self.rescalarize == RescalarizeMode::OnPropose {
-            sample_simplex::<f32>(key.fold(0x7265_7363), &mut self.regions[reg].weights);
+            let regs = Arc::make_mut(&mut self.regions);
+            sample_simplex::<f32>(key.fold(0x7265_7363), &mut regs[reg].weights);
         }
         self.refresh_incumbent(reg);
 
@@ -715,10 +874,11 @@ impl MorboCuda {
         let inc = self.regions[reg].inc_idx;
         let var_opt = (self.spec.noise_aware && self.has_var).then_some(self.latent_v.as_slice());
         let m = self.num_metrics;
-        let (idx, scratch) = self
+        let pair = self
             .gpu
             .as_mut()
             .ok_or_else(|| "MorboCuda::propose_fenced requires GPU index".to_string())?;
+        let (idx, scratch) = ensure_scratch(pair)?;
         let out = idx.propose_fenced(
             scratch,
             &plan,
@@ -740,7 +900,8 @@ impl MorboCuda {
             let var_opt =
                 (self.spec.noise_aware && self.has_var).then_some(self.latent_v.as_slice());
             let m = self.num_metrics;
-            let (idx, scratch) = self.gpu.as_mut().expect("checked gpu");
+            let pair = self.gpu.as_mut().expect("checked gpu");
+            let (idx, scratch) = ensure_scratch(pair)?;
             let fenced = idx.propose_fenced(
                 scratch,
                 &plan,
@@ -768,6 +929,13 @@ impl MorboCuda {
         )?;
         self.step = self.step.wrapping_add(1);
         Ok(out)
+    }
+
+    pub fn ask_seeded(&mut self, seed: u64, arms: usize) -> CudaResult<(usize, ProposalHost)> {
+        self.spec.seed = seed;
+        self.spec.num_arms = arms.max(1);
+        self.spec.num_candidates = self.spec.num_candidates.max(self.spec.num_arms);
+        self.ask()
     }
 
     pub fn ask(&mut self) -> CudaResult<(usize, ProposalHost)> {
@@ -803,24 +971,34 @@ impl MorboCuda {
 
         let prev_n = self.len();
         let yb = self.spec.mods.ybounds.as_deref();
-        for i in 0..count {
-            self.rows.extend_from_slice(&new_rows[i * d..(i + 1) * d]);
-            for col in 0..m {
-                let raw = outcomes[i * m + col];
-                let raw_v = variances.map(|v| v[i * m + col]);
-                let col_yb = yb.and_then(|b| b.get(col..col + 1));
-                let (zy, zv) = warp_outcome(raw, raw_v, col_yb)?;
-                self.raw_y.push(raw);
-                self.latent_y.push(zy);
-                self.latent_v.push(zv);
-            }
-            if variances.is_some() {
-                self.has_var = true;
+        {
+            let rows_mut = Arc::make_mut(&mut self.rows);
+            let raw_mut = Arc::make_mut(&mut self.raw_y);
+            let lat_y_mut = Arc::make_mut(&mut self.latent_y);
+            let lat_v_mut = Arc::make_mut(&mut self.latent_v);
+            for i in 0..count {
+                rows_mut.extend_from_slice(&new_rows[i * d..(i + 1) * d]);
+                for col in 0..m {
+                    let raw = outcomes[i * m + col];
+                    let raw_v = variances.map(|v| v[i * m + col]);
+                    let col_yb = yb.and_then(|b| b.get(col..col + 1));
+                    let (zy, zv) = warp_outcome(raw, raw_v, col_yb)?;
+                    raw_mut.push(raw);
+                    lat_y_mut.push(zy);
+                    lat_v_mut.push(zv);
+                }
+                if variances.is_some() {
+                    self.has_var = true;
+                }
             }
         }
-        if let Some((gpu_idx, mut scratch)) = self.gpu.take() {
+        if let Some((gpu_idx, scratch_opt)) = self.gpu.take() {
+            let mut scratch = match scratch_opt {
+                Some(s) => s,
+                None => gpu_idx.new_scratch()?,
+            };
             let next_idx = gpu_idx.add(&mut scratch, new_rows)?;
-            self.gpu = Some((next_idx, scratch));
+            self.gpu = Some((next_idx, Some(scratch)));
         }
 
         let total_n = self.len();
@@ -848,16 +1026,17 @@ impl MorboCuda {
         let improved = prev_n > 0 && new_best > old_best;
 
         if total_n > self.spec.warmup_obs && prev_n > 0 {
-            let (next_state, _, restarted) = self.regions[reg].state.next_step(improved);
-            self.regions[reg].state = next_state;
+            let regs = Arc::make_mut(&mut self.regions);
+            let (next_state, _, restarted) = regs[reg].state.next_step(improved);
+            regs[reg].state = next_state;
             if restarted {
-                self.regions[reg].restarts += 1;
+                regs[reg].restarts += 1;
                 if self.rescalarize == RescalarizeMode::OnRestart {
                     let r_key = Key::new(self.spec.seed)
                         .fold(0x7273_7472)
                         .fold(reg as u64)
-                        .fold(self.regions[reg].restarts as u64);
-                    sample_simplex::<f32>(r_key, &mut self.regions[reg].weights);
+                        .fold(regs[reg].restarts as u64);
+                    sample_simplex::<f32>(r_key, &mut regs[reg].weights);
                 }
             }
         }
@@ -897,14 +1076,29 @@ impl RegionalSpec {
 }
 
 struct SlotMemory {
-    rows: Vec<f32>,
-    raw_y: Vec<f32>,
-    latent_y: Vec<f32>,
-    latent_v: Vec<f32>,
+    rows: Arc<Vec<f32>>,
+    raw_y: Arc<Vec<f32>>,
+    latent_y: Arc<Vec<f32>>,
+    latent_v: Arc<Vec<f32>>,
     center: Vec<f32>,
     state: TurboState,
     inc_idx: usize,
-    gpu: Option<(CudaIndex, CudaScratch)>,
+    gpu: Option<(CudaIndex, Option<CudaScratch>)>,
+}
+
+impl Clone for SlotMemory {
+    fn clone(&self) -> Self {
+        Self {
+            rows: Arc::clone(&self.rows),
+            raw_y: Arc::clone(&self.raw_y),
+            latent_y: Arc::clone(&self.latent_y),
+            latent_v: Arc::clone(&self.latent_v),
+            center: self.center.clone(),
+            state: self.state,
+            inc_idx: self.inc_idx,
+            gpu: clone_gpu(&self.gpu),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -914,17 +1108,21 @@ pub struct RegionalBatch {
     pub proposal: ProposalHost,
 }
 
+#[derive(Clone)]
 pub struct RegionalCuda {
     pub spec: RegionalSpec,
     ledger: RegionalLedger,
-    slots: Vec<SlotMemory>,
-    all_rows: Vec<f32>,
-    all_y: Vec<f32>,
-    all_v: Vec<f32>,
+    slots: Arc<Vec<SlotMemory>>,
+    all_rows: Arc<Vec<f32>>,
+    all_y: Arc<Vec<f32>>,
+    all_v: Arc<Vec<f32>>,
     has_var: bool,
     step: u32,
     gpu_mode: Option<CudaKnnMode>,
 }
+
+unsafe impl Send for RegionalCuda {}
+unsafe impl Sync for RegionalCuda {}
 
 impl RegionalCuda {
     pub fn new(spec: RegionalSpec) -> CudaResult<Self> {
@@ -950,10 +1148,10 @@ impl RegionalCuda {
                 .map(|j| eval_uniform::<f32>(root, &lo, &hi, s, j))
                 .collect();
             slots.push(SlotMemory {
-                rows: Vec::new(),
-                raw_y: Vec::new(),
-                latent_y: Vec::new(),
-                latent_v: Vec::new(),
+                rows: Arc::new(Vec::new()),
+                raw_y: Arc::new(Vec::new()),
+                latent_y: Arc::new(Vec::new()),
+                latent_v: Arc::new(Vec::new()),
                 center,
                 state: base_state,
                 inc_idx: 0,
@@ -963,10 +1161,10 @@ impl RegionalCuda {
         Ok(Self {
             spec,
             ledger,
-            slots,
-            all_rows: Vec::new(),
-            all_y: Vec::new(),
-            all_v: Vec::new(),
+            slots: Arc::new(slots),
+            all_rows: Arc::new(Vec::new()),
+            all_y: Arc::new(Vec::new()),
+            all_v: Arc::new(Vec::new()),
             has_var: false,
             step: 0,
             gpu_mode: None,
@@ -976,12 +1174,80 @@ impl RegionalCuda {
     pub fn with_gpu(spec: RegionalSpec, mode: CudaKnnMode) -> CudaResult<Self> {
         let mut reg = Self::new(spec)?;
         reg.gpu_mode = Some(mode);
-        for slot in &mut reg.slots {
+        for slot in Arc::make_mut(&mut reg.slots) {
             let idx = CudaIndex::with_mode(reg.spec.base.num_dim, &[], mode)?;
             let scratch = idx.new_scratch()?;
-            slot.gpu = Some((idx, scratch));
+            slot.gpu = Some((idx, Some(scratch)));
         }
         Ok(reg)
+    }
+
+    pub fn fork(&self) -> Self {
+        self.clone()
+    }
+
+    pub fn shares_storage(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.slots, &other.slots)
+            && Arc::ptr_eq(&self.all_rows, &other.all_rows)
+            && Arc::ptr_eq(&self.all_y, &other.all_y)
+    }
+
+    pub fn rows(&self) -> &[f32] {
+        &self.all_rows
+    }
+
+    pub fn outcomes(&self) -> &[f32] {
+        &self.all_y
+    }
+
+    pub fn tr_length(&self) -> f64 {
+        self.slots.first().map_or(0.8, |s| s.state.length)
+    }
+
+    pub fn incumbent(&self) -> Option<(usize, &[f32], f32)> {
+        if self.all_y.is_empty() {
+            return None;
+        }
+        let d = self.spec.base.num_dim;
+        let mut best_i = 0usize;
+        for i in 1..self.all_y.len() {
+            if BetterScore(self.all_y[i]) > BetterScore(self.all_y[best_i]) {
+                best_i = i;
+            }
+        }
+        Some((
+            best_i,
+            &self.all_rows[best_i * d..(best_i + 1) * d],
+            self.all_y[best_i],
+        ))
+    }
+
+    pub fn digest(&self) -> [u8; 32] {
+        let mut buf = Vec::with_capacity(128 + self.all_rows.len() * 4 + self.all_y.len() * 4);
+        buf.extend_from_slice(b"RegionalCuda");
+        buf.extend_from_slice(&self.spec.base.seed.to_le_bytes());
+        buf.extend_from_slice(&self.step.to_le_bytes());
+        buf.extend_from_slice(&(self.spec.num_regions as u64).to_le_bytes());
+        for s in 0..self.spec.num_regions {
+            buf.extend_from_slice(&self.ledger.generation(s).unwrap_or(0).to_le_bytes());
+            buf.extend_from_slice(
+                &u8::from(self.ledger.is_pending(s).unwrap_or(false)).to_le_bytes(),
+            );
+            buf.extend_from_slice(&self.slots[s].state.length.to_bits().to_le_bytes());
+            push_reals(&mut buf, &self.slots[s].center);
+        }
+        push_reals(&mut buf, &self.all_rows);
+        push_reals(&mut buf, &self.all_y);
+        baux::artifact::blake3::hash(&buf)
+    }
+
+    pub fn cancel(&mut self, ticket: RegionTicket) -> CudaResult<()> {
+        self.ledger.retire(ticket).map_err(|e| e.to_string())
+    }
+
+    pub fn ask_seeded(&mut self, seed: u64, budget: usize) -> CudaResult<Vec<RegionalBatch>> {
+        self.spec.base.seed = seed;
+        self.ask(budget)
     }
 
     pub fn len(&self) -> usize {
@@ -1086,18 +1352,19 @@ impl RegionalCuda {
         }
 
         let use_noise = self.spec.base.noise_aware && self.has_var;
-        let SlotMemory {
-            rows,
-            latent_y,
-            latent_v,
-            center,
-            inc_idx,
-            gpu,
-            ..
-        } = &mut self.slots[slot];
-        let var_opt = use_noise.then_some(latent_v.as_slice());
-
-        if let Some((idx, scratch)) = gpu.as_mut() {
+        if self.slots[slot].gpu.is_some() {
+            let slots_mut = Arc::make_mut(&mut self.slots);
+            let SlotMemory {
+                latent_y,
+                latent_v,
+                center,
+                inc_idx,
+                gpu,
+                ..
+            } = &mut slots_mut[slot];
+            let var_opt = use_noise.then_some(latent_v.as_slice());
+            let pair = gpu.as_mut().expect("checked gpu");
+            let (idx, scratch) = ensure_scratch(pair)?;
             return idx.propose_pool(
                 scratch,
                 &plan,
@@ -1109,15 +1376,17 @@ impl RegionalCuda {
                 Some(&mods),
             );
         }
+        let sref = &self.slots[slot];
+        let var_opt = use_noise.then_some(sref.latent_v.as_slice());
         simulate_round(
-            rows,
+            &sref.rows,
             n,
             &plan,
-            center,
-            latent_y,
+            &sref.center,
+            &sref.latent_y,
             var_opt,
             1,
-            *inc_idx,
+            sref.inc_idx,
             Some(&mods),
         )
     }
@@ -1231,19 +1500,24 @@ impl RegionalCuda {
         zy: f32,
         zv: f32,
     ) -> CudaResult<()> {
-        let sm = &mut self.slots[slot];
+        let slots_mut = Arc::make_mut(&mut self.slots);
+        let sm = &mut slots_mut[slot];
         let idx = sm.raw_y.len();
-        sm.rows.extend_from_slice(row);
-        sm.raw_y.push(y);
-        sm.latent_y.push(zy);
-        sm.latent_v.push(zv);
+        Arc::make_mut(&mut sm.rows).extend_from_slice(row);
+        Arc::make_mut(&mut sm.raw_y).push(y);
+        Arc::make_mut(&mut sm.latent_y).push(zy);
+        Arc::make_mut(&mut sm.latent_v).push(zv);
         if idx == 0 || BetterScore(y) > BetterScore(sm.raw_y[sm.inc_idx]) {
             sm.inc_idx = idx;
             sm.center.copy_from_slice(row);
         }
-        if let Some((gpu_idx, mut scratch)) = sm.gpu.take() {
+        if let Some((gpu_idx, scratch_opt)) = sm.gpu.take() {
+            let mut scratch = match scratch_opt {
+                Some(s) => s,
+                None => gpu_idx.new_scratch()?,
+            };
             let next_idx = gpu_idx.add(&mut scratch, row)?;
-            sm.gpu = Some((next_idx, scratch));
+            sm.gpu = Some((next_idx, Some(scratch)));
         }
         Ok(())
     }
@@ -1298,13 +1572,16 @@ impl RegionalCuda {
             self.spec.base.max_len,
             self.spec.base.failure_tol,
         );
-        self.slots[slot].center = new_center;
-        self.slots[slot].state = base_state;
-        self.slots[slot].rows.clear();
-        self.slots[slot].raw_y.clear();
-        self.slots[slot].latent_y.clear();
-        self.slots[slot].latent_v.clear();
-        self.slots[slot].inc_idx = 0;
+        {
+            let slots_mut = Arc::make_mut(&mut self.slots);
+            slots_mut[slot].center = new_center;
+            slots_mut[slot].state = base_state;
+            slots_mut[slot].rows = Arc::new(Vec::new());
+            slots_mut[slot].raw_y = Arc::new(Vec::new());
+            slots_mut[slot].latent_y = Arc::new(Vec::new());
+            slots_mut[slot].latent_v = Arc::new(Vec::new());
+            slots_mut[slot].inc_idx = 0;
+        }
 
         if self.spec.memory == RestartMemoryPolicy::RetainRelevant && !self.all_y.is_empty() {
             let (lb, ub) = self.slot_box(slot);
@@ -1313,25 +1590,22 @@ impl RegionalCuda {
             let mut mask = vec![false; total];
             retain_mask(&pts_f64, &lb, &ub, self.spec.sharing, total, d, &mut mask);
             let yb = self.spec.base.mods.ybounds.as_deref();
+            let slots_mut = Arc::make_mut(&mut self.slots);
+            let sm = &mut slots_mut[slot];
             for (i, &keep) in mask.iter().enumerate() {
                 if keep {
                     let y = self.all_y[i];
                     let v = self.has_var.then_some(self.all_v[i]);
                     let (zy, zv) = warp_outcome(y, v, yb)?;
-                    let local_i = self.slots[slot].raw_y.len();
-                    self.slots[slot]
-                        .rows
+                    let local_i = sm.raw_y.len();
+                    Arc::make_mut(&mut sm.rows)
                         .extend_from_slice(&self.all_rows[i * d..(i + 1) * d]);
-                    self.slots[slot].raw_y.push(y);
-                    self.slots[slot].latent_y.push(zy);
-                    self.slots[slot].latent_v.push(zv);
-                    if local_i == 0
-                        || BetterScore(y)
-                            > BetterScore(self.slots[slot].raw_y[self.slots[slot].inc_idx])
-                    {
-                        self.slots[slot].inc_idx = local_i;
-                        self.slots[slot]
-                            .center
+                    Arc::make_mut(&mut sm.raw_y).push(y);
+                    Arc::make_mut(&mut sm.latent_y).push(zy);
+                    Arc::make_mut(&mut sm.latent_v).push(zv);
+                    if local_i == 0 || BetterScore(y) > BetterScore(sm.raw_y[sm.inc_idx]) {
+                        sm.inc_idx = local_i;
+                        sm.center
                             .copy_from_slice(&self.all_rows[i * d..(i + 1) * d]);
                     }
                 }
@@ -1341,7 +1615,7 @@ impl RegionalCuda {
         if let Some(mode) = self.gpu_mode {
             let idx = CudaIndex::with_mode(d, &self.slots[slot].rows, mode)?;
             let scratch = idx.new_scratch()?;
-            self.slots[slot].gpu = Some((idx, scratch));
+            Arc::make_mut(&mut self.slots)[slot].gpu = Some((idx, Some(scratch)));
         }
 
         let inc = if self.slots[slot].raw_y.is_empty() {
@@ -1385,9 +1659,9 @@ impl RegionalCuda {
             let row = &new_rows[i * d..(i + 1) * d];
             let v_in = variances.map(|v| v[i]);
             let (zy, zv) = warp_outcome(y, v_in, yb.as_deref())?;
-            self.all_rows.extend_from_slice(row);
-            self.all_y.push(y);
-            self.all_v.push(zv);
+            Arc::make_mut(&mut self.all_rows).extend_from_slice(row);
+            Arc::make_mut(&mut self.all_y).push(y);
+            Arc::make_mut(&mut self.all_v).push(zv);
             if variances.is_some() {
                 self.has_var = true;
             }
@@ -1443,8 +1717,9 @@ impl RegionalCuda {
             .map_err(|e| e.to_string())?;
 
         if self.spec.controller == RegionController::Turbo && prev_best.is_finite() {
-            let (next_state, _, restarted) = self.slots[slot].state.next_step(improved);
-            self.slots[slot].state = next_state;
+            let slots_mut = Arc::make_mut(&mut self.slots);
+            let (next_state, _, restarted) = slots_mut[slot].state.next_step(improved);
+            slots_mut[slot].state = next_state;
             if restarted {
                 self.restart_slot(slot)?;
             }
@@ -1614,5 +1889,28 @@ mod tests {
             let (_, r1) = morbo.ask().unwrap();
             assert_ne!(r0.rows, r1.rows);
         }
+    }
+
+    #[test]
+    fn fork_sharing() {
+        let mut spec = TurboSpec::for_dims(42, 4);
+        spec.num_candidates = 64;
+        spec.num_arms = 2;
+        spec.warmup_obs = 2;
+        let mut opt = TurboCuda::new(spec.clone()).unwrap();
+        let p0 = opt.ask().unwrap();
+        opt.tell(&p0.rows, &[1.0, 2.0], None).unwrap();
+
+        let mut forked = opt.fork();
+        assert!(opt.shares_storage(&forked));
+        assert_eq!(opt.digest(), forked.digest());
+
+        let p_a = opt.ask_seeded(101, 2).unwrap();
+        let p_b = forked.ask_seeded(202, 2).unwrap();
+        assert_ne!(p_a.rows, p_b.rows);
+        opt.tell(&p_a.rows, &[3.0, 0.5], None).unwrap();
+        assert!(!opt.shares_storage(&forked));
+        assert_eq!(forked.len(), 2);
+        assert_eq!(opt.len(), 4);
     }
 }

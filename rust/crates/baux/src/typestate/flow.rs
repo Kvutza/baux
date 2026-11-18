@@ -11,6 +11,7 @@ use crate::error::ENNError;
 use crate::hash::AffineKey;
 use crate::sense::ObjectiveSense;
 use crate::ticket::ProposalTicket;
+use crate::unified_opt::OptBackend;
 
 use super::{Active, TypedOptimizer};
 
@@ -31,77 +32,81 @@ pub struct StepTrace {
     pub best_y: Option<f64>,
 }
 
-impl<O: ObjectiveSense> TypedOptimizer<O, Active> {
+impl<O: ObjectiveSense, B: OptBackend> TypedOptimizer<O, Active, B> {
     /// Enter the strict alternating [`Ready`] / [`Pending`] affine typestate
     /// protocol.
-    pub fn into_ready(self) -> TypedOptimizer<O, Ready> {
+    pub fn into_ready(self) -> TypedOptimizer<O, Ready, B> {
         TypedOptimizer {
-            inner: self.inner,
+            engine: self.engine,
             sense: self.sense,
+            backend: self.backend,
             phase: PhantomData,
         }
     }
 }
 
-impl<O: ObjectiveSense> TypedOptimizer<O, Ready> {
+impl<O: ObjectiveSense, B: OptBackend> TypedOptimizer<O, Ready, B> {
     /// Issue an affine [`ProposalTicket`], advance [`AffineKey`], and
-    /// transition to [`TypedOptimizer<O, Pending>`]. Consumes `self` and
+    /// transition to [`TypedOptimizer<O, Pending, B>`]. Consumes `self` and
     /// `key` by value.
     pub fn ask_step(
         mut self,
         num_arms: usize,
         key: AffineKey,
-    ) -> Result<(TypedOptimizer<O, Pending>, ProposalTicket, AffineKey), ENNError> {
+    ) -> Result<(TypedOptimizer<O, Pending, B>, ProposalTicket, AffineKey), ENNError> {
         let (draw_key, next_key) = key.step();
         let mut prng = draw_key.prng();
-        let (ticket, next) = self.inner.ask_ticket(num_arms, &mut prng)?;
-        self.inner = next;
+        let (ticket, next) = self.engine.ask_ticket(num_arms, &mut prng)?;
+        self.engine = next;
         let pending = TypedOptimizer {
-            inner: self.inner,
+            engine: self.engine,
             sense: self.sense,
+            backend: self.backend,
             phase: PhantomData,
         };
         Ok((pending, ticket, next_key))
     }
 }
 
-impl<O: ObjectiveSense> TypedOptimizer<O, Pending> {
+impl<O: ObjectiveSense, B: OptBackend> TypedOptimizer<O, Pending, B> {
     /// Consume an affine [`ProposalTicket`] and [`AffineKey`], record
-    /// observations, and return to [`TypedOptimizer<O, Ready>`]. Consumes
+    /// observations, and return to [`TypedOptimizer<O, Ready, B>`]. Consumes
     /// `self` by value.
     pub fn tell_step(
         mut self,
         ticket: ProposalTicket,
         y: &ArrayView2<f64>,
         key: AffineKey,
-    ) -> Result<(TypedOptimizer<O, Ready>, AffineKey), ENNError> {
+    ) -> Result<(TypedOptimizer<O, Ready, B>, AffineKey), ENNError> {
         let (draw_key, next_key) = key.step();
         let y_canon = self.canonicalize_y(y);
         let mut prng = draw_key.prng();
-        self.inner = self
-            .inner
+        self.engine = self
+            .engine
             .tell_ticket(ticket, &y_canon.view(), None, &mut prng)?;
         let ready = TypedOptimizer {
-            inner: self.inner,
+            engine: self.engine,
             sense: self.sense,
+            backend: self.backend,
             phase: PhantomData,
         };
         Ok((ready, next_key))
     }
 
     /// Retire an affine [`ProposalTicket`] without controller penalty and
-    /// return to [`TypedOptimizer<O, Ready>`]. Consumes `self` by value.
+    /// return to [`TypedOptimizer<O, Ready, B>`]. Consumes `self` by value.
     pub fn cancel_step(
         mut self,
         ticket: ProposalTicket,
         key: AffineKey,
-    ) -> Result<(TypedOptimizer<O, Ready>, AffineKey), ENNError> {
+    ) -> Result<(TypedOptimizer<O, Ready, B>, AffineKey), ENNError> {
         let (draw_key, next_key) = key.step();
         let mut prng = draw_key.prng();
-        self.inner = self.inner.cancel_ticket(ticket, &mut prng)?;
+        self.engine = self.engine.cancel_ticket(ticket, &mut prng)?;
         let ready = TypedOptimizer {
-            inner: self.inner,
+            engine: self.engine,
             sense: self.sense,
+            backend: self.backend,
             phase: PhantomData,
         };
         Ok((ready, next_key))
@@ -110,13 +115,13 @@ impl<O: ObjectiveSense> TypedOptimizer<O, Pending> {
 
 /// Fold `steps` pure `(ask_step -> eval_fn -> tell_step)` rounds over `opt`
 /// and `key`.
-pub fn scan_step<O: ObjectiveSense, F>(
-    mut opt: TypedOptimizer<O, Ready>,
+pub fn scan_step<O: ObjectiveSense, B: OptBackend, F>(
+    mut opt: TypedOptimizer<O, Ready, B>,
     mut key: AffineKey,
     steps: usize,
     num_arms: usize,
     mut eval_fn: F,
-) -> Result<(TypedOptimizer<O, Ready>, AffineKey, Vec<StepTrace>), ENNError>
+) -> Result<(TypedOptimizer<O, Ready, B>, AffineKey, Vec<StepTrace>), ENNError>
 where
     F: FnMut(usize, &Array2<f64>) -> Result<Array2<f64>, ENNError>,
 {
@@ -139,14 +144,14 @@ where
 /// Fork `opt` and split `key` across `branches` independent trajectories,
 /// executing `branch_fn` in parallel via Rayon. Consumes `opt` as pure value
 /// semantics.
-pub fn pmap_branches<O: ObjectiveSense, F, R: Send>(
-    opt: TypedOptimizer<O, Ready>,
+pub fn pmap_branches<O: ObjectiveSense, B: OptBackend, F, R: Send>(
+    opt: TypedOptimizer<O, Ready, B>,
     key: AffineKey,
     branches: usize,
     branch_fn: F,
 ) -> Result<Vec<R>, ENNError>
 where
-    F: Fn(usize, TypedOptimizer<O, Ready>, AffineKey) -> Result<R, ENNError> + Sync,
+    F: Fn(usize, TypedOptimizer<O, Ready, B>, AffineKey) -> Result<R, ENNError> + Sync,
 {
     if branches == 0 {
         return Ok(Vec::new());
@@ -184,25 +189,22 @@ mod tests {
     use crate::pipeline::{AcqStage, InitStage, ModelStage, PerturbStage};
     use crate::sense::Minimize;
     use ndarray::{Axis, array};
-    use rand::SeedableRng;
-    use rand::rngs::StdRng;
 
-    fn make_ready(seed: u64) -> TypedOptimizer<Minimize, Ready> {
-        let mut rng = StdRng::seed_from_u64(seed);
+    fn make_ready(seed: u64) -> (TypedOptimizer<Minimize, Ready>, AffineKey) {
+        let key = AffineKey::new(seed);
         let bounds = array![[-4.0, 4.0], [-4.0, 4.0]];
         let pipe = InitStage::Lhd(4)
             | PerturbStage::Raasp(16)
             | ModelStage::Enn(3)
-            | AcqStage::ucb_sense(1.5, Minimize);
-        let warmup = pipe.build(bounds, &mut rng).unwrap();
-        let (x0, warmup) = warmup.warmup_design(4, &mut rng).unwrap();
-        let y0 = x0
+            | AcqStage::ucb_sense(1.0, Minimize);
+        let (warmup, key) = pipe.build_key(bounds, key).unwrap();
+        let (x_init, warmup, key) = warmup.design_step(4, key).unwrap();
+        let y_init = x_init
             .map_axis(Axis(1), |r| r[0].powi(2) + r[1].powi(2))
             .insert_axis(Axis(1));
         warmup
-            .activate(&x0.view(), &y0.view(), &mut rng)
+            .activate_ready(&x_init.view(), &y_init.view(), key)
             .unwrap()
-            .into_ready()
     }
 
     fn sphere_eval(_step: usize, x: &Array2<f64>) -> Result<Array2<f64>, ENNError> {
@@ -212,22 +214,22 @@ mod tests {
 
     #[test]
     fn affine_protocol() {
-        let ready = make_ready(17);
-        let key = AffineKey::new(900);
+        let (ready, key) = make_ready(17);
         let (pending, ticket, key) = ready.ask_step(2, key).unwrap();
         let (ready_cancelled, key) = pending.cancel_step(ticket, key).unwrap();
-        let (pending2, ticket2, key) = ready_cancelled.ask_step(2, key).unwrap();
-        let y = sphere_eval(0, ticket2.as_array()).unwrap();
-        let (ready_done, key) = pending2.tell_step(ticket2, &y.view(), key).unwrap();
+        let (pending_next, ticket_next, key) = ready_cancelled.ask_step(2, key).unwrap();
+        let y = sphere_eval(0, ticket_next.as_array()).unwrap();
+        let (ready_done, key) = pending_next.tell_step(ticket_next, &y.view(), key).unwrap();
         let _ = key.into_key();
         assert!(ready_done.best_y().unwrap().is_finite());
     }
 
     #[test]
     fn scan_pmap() {
-        let root = make_ready(73);
+        let (root, key) = make_ready(73);
+        let seed = key.into_key().seed();
         let run_branches = || {
-            pmap_branches(root.clone(), AffineKey::new(2026), 4, |idx, opt, bkey| {
+            pmap_branches(root.clone(), AffineKey::new(seed), 4, |idx, opt, bkey| {
                 let shift = (idx as f64) * 0.25;
                 let (final_opt, next_key, traces) = scan_step(opt, bkey, 3, 2, |_, x| {
                     Ok(

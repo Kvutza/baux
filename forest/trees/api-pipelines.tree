@@ -217,7 +217,7 @@ baux.stein(target: Any = None, frame: Any = None, *, rank: int | None = None) ->
   \p{Use \code{stein(rank=F)} to build a pipeline transform, or \code{stein(enn_state, frame)} to apply a supplied \code{Stiefel} frame. A rank requests a frame estimated from observed outputs.}
   \p{The basis has shape \code{(M, F)}. Use \code{Stiefel.from_factors} to orthonormalize supplied factors.}
   \p{Applying the transform to an \code{OptimizerState} initializes a new optimizer; configure it before collecting observations.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L799)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L801)}
 }
 
 \<section>[id]{baux.calibrate}[class]{api-entry}[data-symbol]{baux.calibrate}[data-kind]{function}[data-module]{baux.transforms}{
@@ -229,7 +229,7 @@ baux.calibrate(target: Any = None, affine: Any = None, *, alpha: float | None = 
   \p{Use \code{calibrate(affine=map)} for a supplied \code{Affine}, or \code{calibrate(alpha=0.1)} to request a fitted correction and residual-quantile scale. Applying it to an \code{ENNState} returns a new state.}
   \p{\code{alpha} sets the target miscoverage level in \code{(0, 1)}.}
   \p{Applying it to an \code{OptimizerState} initializes a new optimizer; configure it before collecting observations.}
-  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L818)}
+  \<p>[class]{api-source}{[Source in \code{python/baux/enn/enn_state.py}](https://github.com/Kvutza/baux/blob/main/python/baux/enn/enn_state.py#L820)}
 }
 
 \<section>[id]{baux.Transform}[class]{api-entry}[data-symbol]{baux.Transform}[data-kind]{class}[data-module]{baux.transforms}{

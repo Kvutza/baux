@@ -13,11 +13,11 @@ mod regional;
 pub use build::{bind_regions, create_py};
 pub use dense::{PyDenseLinear, dense_apply, dense_dist2};
 
-/// Python wrapper for BayesOptimizer
+/// Python wrapper for UnifiedEngine / BayesOptimizer
 #[pyclass(name = "BayesOptimizer", frozen)]
 #[derive(Clone)]
 pub struct PyBayesOptimizer {
-    pub(crate) inner: baux::BayesOptimizer,
+    pub(crate) inner: baux::UnifiedEngine,
     pub(crate) rng: baux::Prng,
 }
 
@@ -276,11 +276,24 @@ impl PyBayesOptimizer {
         self.inner.y_obs().map(|y| y.into_dyn().into_pyarray(py))
     }
 
+    /// Active execution device kind ("cpu", "metal", or "cuda").
+    fn device(&self) -> &'static str {
+        match self.inner.device_name() {
+            "disk" => "cpu",
+            other => other,
+        }
+    }
+
+    /// Primary incumbent objective value, if any.
+    fn best_y(&self) -> Option<f64> {
+        self.inner.best_y()
+    }
+
     /// Get incumbent x in unit space (if any).
     fn unit_incumbent<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyArrayDyn<f64>>> {
         self.inner
             .unit_incumbent()
-            .map(|x| x.view().to_owned().into_dyn().into_pyarray(py))
+            .map(|x| x.into_dyn().into_pyarray(py))
     }
 
     /// Get incumbent x in natural coordinates (if any).

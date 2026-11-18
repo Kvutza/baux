@@ -30,6 +30,30 @@ impl !Copy for ProposalTicket {}
 
 impl ProposalTicket {
     #[inline(always)]
+    pub(crate) fn new_ticket(
+        x: Array2<f64>,
+        ids: Option<Vec<EvaluationId>>,
+        origin_digest: Option<[u8; 32]>,
+    ) -> Self {
+        Self {
+            x: OwnedCoords::new(x),
+            ids,
+            origin_digest,
+        }
+    }
+
+    #[inline(always)]
+    pub(crate) fn into_parts(
+        self,
+    ) -> (
+        OwnedCoords<DomainSpace>,
+        Option<Vec<EvaluationId>>,
+        Option<[u8; 32]>,
+    ) {
+        (self.x, self.ids, self.origin_digest)
+    }
+
+    #[inline(always)]
     pub fn coords(&self) -> Coords<'_, DomainSpace> {
         self.x.borrow()
     }

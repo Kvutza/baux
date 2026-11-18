@@ -1,7 +1,10 @@
 //! Execution mode resolution and hardware capability validation for Julia
 //! experiments.
 
+use std::path::Path;
+
 use crate::experiment::julia::config::{Backend, Config, ExecMode, is_ocean, obj_count};
+use baux::AnyBackend;
 use baux::config::OptimizerSpec;
 
 fn check_manifold(cfg: &Config) -> Result<(), String> {
@@ -46,51 +49,24 @@ fn check_morbo(cfg: &Config) -> Result<(), String> {
     Ok(())
 }
 
-fn check_optimizer(cfg: &Config) -> Result<(), String> {
-    match &cfg.optimizer {
-        OptimizerSpec::SingleStateBo {
-            perturbation: Some(_),
-            ..
-        } => Err("resident-metal single-state-bo does not accept [optimizer.perturbation]".into()),
-        OptimizerSpec::SingleStateBo {
-            regional_search, ..
-        } => {
-            if let Some(rs) = regional_search {
-                rs.validate()?;
-            }
-            Ok(())
-        }
-        OptimizerSpec::BayesianSearch {
-            candidates,
-            arms,
-            perturbation,
-            regional_search,
-            ..
-        } => {
-            if let Some(pert) = perturbation {
-                pert.validate()?;
-            }
-            if *arms == 0 || *candidates == 0 || !candidates.is_multiple_of(*arms) {
-                return Err(
-                    "bayesian-search requires positive candidates divisible by arms".into(),
-                );
-            }
-            if let Some(rs) = regional_search {
-                rs.validate()?;
-            }
-            Ok(())
-        }
-        _ => Err("resident-metal ENN backend requires single-state-bo or bayesian-search".into()),
-    }
-}
-
 pub fn metal_ok(cfg: &Config) -> Result<(), String> {
     if !cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         return Err("resident-metal backend requires macOS with Metal feature".into());
     }
     check_manifold(cfg)?;
     check_morbo(cfg)?;
-    check_optimizer(cfg)
+    baux::UnifiedEngine::check_metal(&cfg.optimizer).map_err(|e| e.to_string())
+}
+
+pub fn mode_backend(mode: ExecMode, out_dir: Option<&Path>, rep: u32) -> AnyBackend {
+    match mode {
+        ExecMode::ResidentMetal => AnyBackend::Metal,
+        ExecMode::HostDisk => {
+            let base = out_dir.unwrap_or_else(|| Path::new("."));
+            AnyBackend::disk(base.join(format!("bpann_rep{rep}")))
+        }
+        ExecMode::HostRam | ExecMode::MetalPpo => AnyBackend::Cpu,
+    }
 }
 
 fn special_mode(cfg: &Config) -> Result<Option<ExecMode>, String> {

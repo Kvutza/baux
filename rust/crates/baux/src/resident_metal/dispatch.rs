@@ -230,8 +230,8 @@ impl SearchState {
                 size_of::<SelectionParams>() as u64,
                 (&params as *const SelectionParams).cast(),
             );
-            encoder.set_buffer(4, Some(&selector.parameters), 0);
-            encoder.set_buffer(5, Some(&selector.vectors), 0);
+            encoder.set_buffer(4, Some(&*selector.parameters), 0);
+            encoder.set_buffer(5, Some(&*selector.vectors), 0);
             encoder.set_buffer(6, Some(&*self.axis_candidates_gpu), 0);
             encoder.dispatch_thread_groups(thread_group(score_tgs), thread_group(256));
             barrier_buffers(encoder);
@@ -245,9 +245,9 @@ impl SearchState {
                 size_of::<SelectionParams>() as u64,
                 (&params as *const SelectionParams).cast(),
             );
-            encoder.set_buffer(4, Some(&selector.parameters), 0);
-            encoder.set_buffer(5, Some(&selector.report), 0);
-            encoder.set_buffer(6, Some(&selector.vectors), 0);
+            encoder.set_buffer(4, Some(&*selector.parameters), 0);
+            encoder.set_buffer(5, Some(&*selector.report), 0);
+            encoder.set_buffer(6, Some(&*selector.vectors), 0);
             encoder.dispatch_thread_groups(thread_group(1), thread_group(256));
         } else {
             encoder.set_compute_pipeline_state(&self.score_pipeline);

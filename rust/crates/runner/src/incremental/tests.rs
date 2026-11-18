@@ -411,3 +411,79 @@ fn test_plots() {
 
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[test]
+fn test_fibers() {
+    use super::engine::{RunnerFiber, cell_spec};
+    use crate::experiment::julia::metal_step::MetalFiber;
+    use baux::artifact::inc::EvalOutcome;
+
+    let host_raw = r#"
+version = 4
+experiment = "tokamak-tokagym"
+backend = "host-ram"
+rounds = 4
+
+[optimizer]
+algorithm = "bayesian-search"
+candidates = 16
+arms = 1
+acquisition = "upper-confidence-bound"
+
+[optimizer.perturbation]
+sampler = "raasp"
+num-pert = 16
+raasp-fast = true
+"#;
+    let host_val = from_str(host_raw).expect("parse host cell");
+    let host_cell = StudyCell {
+        env_id: "tokamak-tokagym".into(),
+        arm_id: "host".into(),
+        cell_id: "tokamak-tokagym__host".into(),
+        baseline: true,
+        factors: Vec::new(),
+        experiment: "tokamak-tokagym".into(),
+        rounds: 4,
+        repetitions: 1,
+        canonical_toml: host_raw.into(),
+        value: host_val,
+    };
+    let root = PathBuf::from(".");
+    let h_spec = cell_spec(&root, &host_cell, 0, 4).expect("host cell spec");
+    let mut h_inner = MetalFiber::new(h_spec.clone());
+    assert_eq!(h_inner.device_name(), "cpu");
+    let mut prefix = Vec::new();
+    for i in 0..3 {
+        let p = h_inner.prepare_proposal().expect("host proposal");
+        assert_eq!(p.len(), h_spec.num_dim);
+        let out = EvalOutcome {
+            scores: vec![-10.0 + (i as f64)],
+            viol: 0.0,
+            cost_us: 4,
+        };
+        prefix.push(h_inner.commit_eval(&out, &|s| (-s).max(0.0)).unwrap());
+    }
+    let next_live = h_inner.prepare_proposal().expect("next host proposal");
+    let mut h_rep = MetalFiber::new(h_spec);
+    h_rep
+        .replay_prefix(&prefix, &|s| (-s).max(0.0))
+        .expect("replay host");
+    assert_eq!(h_rep.prepare_proposal().unwrap(), next_live);
+    let _ = RunnerFiber::Unified(h_rep);
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        let met_raw = host_raw.replace("backend = \"host-ram\"", "backend = \"resident-metal\"");
+        let met_val = from_str(&met_raw).expect("parse metal cell");
+        let met_cell = StudyCell {
+            canonical_toml: met_raw,
+            value: met_val,
+            ..host_cell
+        };
+        let m_spec = cell_spec(&root, &met_cell, 0, 4).expect("metal cell spec");
+        let mut m_inner = MetalFiber::new(m_spec);
+        assert_eq!(m_inner.device_name(), "metal");
+        let p = m_inner.prepare_proposal().expect("metal proposal");
+        assert!(!p.is_empty());
+    }
+}

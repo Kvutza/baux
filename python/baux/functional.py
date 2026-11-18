@@ -20,6 +20,7 @@ from .state import (
     OptimizerState,
     _foldseed,
     _makeinner,
+    _normdev,
     _readonly,
     _resolveseed,
     _snapshot,
@@ -112,6 +113,7 @@ def init(
     seed: int | Generator | None = None,
     low: Any = -1.0,
     high: Any = 1.0,
+    device: str = "cpu",
 ) -> OptimizerState:
     """Initialize an immutable `OptimizerState` from bounds or a parameter PyTree."""
     if config is not None and pipe is not None:
@@ -124,6 +126,7 @@ def init(
     )
     if not supports(cfg):
         raise ValueError(f"unsupported optimizer config: {cfg!r}")
+    dev = _normdev(device)
     spec, bounds = _parsedomain(domain, low, high)
     if spec is not None and spec.tied_dims:
         from dataclasses import replace as _replace
@@ -142,7 +145,8 @@ def init(
         else np.ascontiguousarray(bounds, dtype=float).tobytes()
     ) + repr(cfg).encode("utf-8")
     base_seed = _resolveseed(seed, key, default_bytes)
-    inner = _makeinner(bounds, cfg, base_seed)
+    inner = _makeinner(bounds, cfg, base_seed, device=dev)
+    resolved_dev = str(inner.device()) if hasattr(inner, "device") else dev
     t = inner.telemetry()
     raw_pending = inner.pending_ids()
     return OptimizerState(
@@ -163,6 +167,7 @@ def init(
             t.dt_fit, t.dt_gen, t.dt_sel, t.dt_tell, int(t.num_candidates)
         ),
         _opt=inner,
+        device=resolved_dev,
     )
 
 
@@ -180,11 +185,11 @@ def ask(
     points = _readonly(raw)
     after = next_opt.pending_ids() or ()
     new_raw = tuple(int(i) for i in after if i not in before)
-    if len(new_raw) == arms:
+    if len(new_raw) == points.shape[0]:
         logical_ids = tuple(int(i) for i in new_raw)
     else:
         base_id = (state.epoch + 1) << 32
-        logical_ids = tuple(base_id + i for i in range(arms))
+        logical_ids = tuple(base_id + i for i in range(points.shape[0]))
     next_state = _snapshot(state, next_opt)
     batch = AskBatch(
         ids=tuple(AskId(i) for i in logical_ids),

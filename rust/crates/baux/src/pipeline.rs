@@ -10,12 +10,18 @@ use crate::candidates::CandidateSampler;
 use crate::config::{
     AcquisitionConfig, CandidateConfig, InitStrategy, OptimizerConfig, SurrogateConfig,
 };
+use crate::coordinate::DomainFrame;
 use crate::error::ENNError;
-use crate::optimizer::{BayesOptimizer, Strategy};
+use crate::hash::AffineKey;
+use crate::optimizer::Strategy;
 use crate::sense::{Maximize, ObjectiveSense};
 use crate::surrogate::ENNSurrogateConfig;
 pub use crate::typestate::{
-    Active, Fitted, ProposalTicket, TypedOptimizer, TypedSurrogate, Unfitted, Warmup,
+    Active, Fitted, Pending, ProposalTicket, Ready, StepTrace, TypedOptimizer, TypedSurrogate,
+    Unfitted, Warmup, pmap_branches, scan_step,
+};
+pub use crate::unified_opt::{
+    AnyBackend, CpuBackend, CudaBackend, MetalBackend, OptBackend, UnifiedEngine,
 };
 
 /// Stage 1 combinator: initial space-filling design.
@@ -128,12 +134,7 @@ impl<O: ObjectiveSense> BitOr<AcqStage<O>> for SurrogatePipe {
 }
 
 impl<O: ObjectiveSense> Pipeline<O> {
-    /// Compile this pipeline into a typestate [`TypedOptimizer<O, Warmup>`].
-    pub fn build(
-        self,
-        bounds: Array2<f64>,
-        rng: &mut dyn RngCore,
-    ) -> Result<TypedOptimizer<O, Warmup>, ENNError> {
+    fn into_parts(self) -> (OptimizerConfig, Strategy, O) {
         let (init_kind, num_init) = match self.surrogate.design.init {
             InitStage::Lhd(n) => (InitStrategy::LHD, n),
             InitStage::Random(n) => (InitStrategy::Random, n),
@@ -162,8 +163,44 @@ impl<O: ObjectiveSense> Pipeline<O> {
             ..Default::default()
         };
         let strategy = Strategy::hybrid(init_kind, num_init);
-        let opt = BayesOptimizer::new_strategy(bounds, config, strategy, rng)?;
-        Ok(TypedOptimizer::new(opt, self.acq.sense))
+        (config, strategy, self.acq.sense)
+    }
+
+    /// Pure functional compilation of this pipeline onto `backend`, consuming
+    /// `key` and returning `(warmup_opt, next_key)`.
+    pub fn with_backend<B: OptBackend>(
+        self,
+        bounds: Array2<f64>,
+        backend: B,
+        key: AffineKey,
+    ) -> Result<(TypedOptimizer<O, Warmup, B>, AffineKey), ENNError> {
+        let (config, strategy, sense) = self.into_parts();
+        let (draw_key, next_key) = key.step();
+        let engine = backend.build_engine(DomainFrame::new(bounds)?, config, strategy, draw_key)?;
+        Ok((
+            TypedOptimizer::from_engine(engine, sense, backend),
+            next_key,
+        ))
+    }
+
+    /// Pure functional compilation of this pipeline onto [`CpuBackend`],
+    /// consuming `key` and returning `(warmup_opt, next_key)`.
+    pub fn build_key(
+        self,
+        bounds: Array2<f64>,
+        key: AffineKey,
+    ) -> Result<(TypedOptimizer<O, Warmup>, AffineKey), ENNError> {
+        self.with_backend(bounds, CpuBackend, key)
+    }
+
+    /// Compile this pipeline into a typestate [`TypedOptimizer<O, Warmup>`].
+    pub fn build(
+        self,
+        bounds: Array2<f64>,
+        rng: &mut dyn RngCore,
+    ) -> Result<TypedOptimizer<O, Warmup>, ENNError> {
+        let (opt, _) = self.build_key(bounds, AffineKey::new(rng.next_u64()))?;
+        Ok(opt)
     }
 }
 
@@ -173,41 +210,38 @@ mod tests {
     use crate::sense::Minimize;
     use crate::surrogate_api::ObservationView;
     use ndarray::array;
-    use rand::SeedableRng;
-    use rand::rngs::StdRng;
 
     #[test]
     fn pipeline_ticket() {
-        let mut rng = StdRng::seed_from_u64(42);
+        let key = AffineKey::new(42);
         let bounds = array![[-5.0, 5.0], [-5.0, 5.0]];
         let pipe = InitStage::Lhd(4)
             | PerturbStage::Raasp(32)
             | ModelStage::Enn(3)
-            | AcqStage::ucb_sense(1.5, Minimize);
+            | AcqStage::ucb_sense(1.0, Minimize);
 
-        let warmup_opt = pipe.build(bounds, &mut rng).unwrap();
-        let (x_init, warmup_opt) = warmup_opt.warmup_design(4, &mut rng).unwrap();
+        let (warmup_opt, key) = pipe.build_key(bounds, key).unwrap();
+        let (x_init, warmup_opt, key) = warmup_opt.design_step(4, key).unwrap();
         let y_init = x_init.map_axis(ndarray::Axis(1), |row| row[0].powi(2) + row[1].powi(2));
         let y_init = y_init.insert_axis(ndarray::Axis(1));
 
-        let active_opt = warmup_opt
-            .activate(&x_init.view(), &y_init.view(), &mut rng)
+        let (ready_opt, key) = warmup_opt
+            .activate_ready(&x_init.view(), &y_init.view(), key)
             .unwrap();
-        let (ticket, active_opt) = active_opt.ask_ticket(2, &mut rng).unwrap();
+        let (pending_opt, ticket, key) = ready_opt.ask_step(2, key).unwrap();
         assert_eq!(ticket.num_arms(), 2);
         let y_step = ticket
             .as_array()
             .map_axis(ndarray::Axis(1), |row| row[0].powi(2) + row[1].powi(2))
             .insert_axis(ndarray::Axis(1));
-        let active_opt = active_opt
-            .tell_ticket(ticket, &y_step.view(), &mut rng)
-            .unwrap();
-        assert!(active_opt.best_y().unwrap() >= 0.0);
+        let (ready_opt, key) = pending_opt.tell_step(ticket, &y_step.view(), key).unwrap();
+        let _ = key.into_key();
+        assert!(ready_opt.best_y().unwrap() >= 0.0);
     }
 
     #[test]
     fn typestate_fit() {
-        let mut rng = StdRng::seed_from_u64(19);
+        let key = AffineKey::new(19);
         let unfitted = TypedSurrogate::new(ENNSurrogateConfig {
             k: 2,
             num_candidates: 4,
@@ -216,7 +250,8 @@ mod tests {
         });
         let x = array![[0.1, 0.2], [0.4, 0.5], [0.8, 0.9]];
         let y = array![[1.0], [2.0], [3.0]];
-        let fitted = unfitted.fit(&x.view(), &y.view(), None, &mut rng).unwrap();
+        let (fitted, key) = unfitted.fit_key(&x.view(), &y.view(), None, key).unwrap();
+        let _ = key.into_key();
         let cloned = fitted.clone();
         assert_eq!(cloned.obs_len(), 3);
         let pred = cloned.predict(&array![[0.2, 0.3]].view()).unwrap();
@@ -225,26 +260,35 @@ mod tests {
 
     #[test]
     fn pure_branching() {
-        let mut rng = StdRng::seed_from_u64(42);
+        let key = AffineKey::new(42);
         let bounds = array![[-5.0, 5.0], [-5.0, 5.0]];
         let pipe = InitStage::Lhd(4)
             | PerturbStage::Raasp(32)
             | ModelStage::Enn(3)
-            | AcqStage::ucb_sense(1.5, Minimize);
-        let warmup = pipe.build(bounds, &mut rng).unwrap();
-        let (x0, warmup) = warmup.warmup_design(4, &mut rng).unwrap();
-        let y0 = array![[1.0], [2.0], [0.5], [3.0]];
-        let branch_a = warmup.activate(&x0.view(), &y0.view(), &mut rng).unwrap();
+            | AcqStage::ucb_sense(1.0, Minimize);
+        let (warmup, key) = pipe.build_key(bounds, key).unwrap();
+        let (x_init, warmup, key) = warmup.design_step(4, key).unwrap();
+        let y_init = array![[1.0], [2.0], [0.5], [3.0]];
+        let (branch_a, key) = warmup
+            .activate_step(&x_init.view(), &y_init.view(), key)
+            .unwrap();
+        let _ = key.into_key();
         let branch_b = branch_a.fork().unwrap();
 
-        let key = crate::hash::Key::new(101);
-        let (next_a, ticket_a) = branch_a.ask_pure(2, key).unwrap();
-        let (next_b, ticket_b) = branch_b.ask_pure(2, key).unwrap();
+        let step_key = crate::hash::Key::new(101);
+        let (next_a, ticket_a) = branch_a.ask_pure(2, step_key).unwrap();
+        let (next_b, ticket_b) = branch_b.ask_pure(2, step_key).unwrap();
         assert_eq!(ticket_a.as_array(), ticket_b.as_array());
         assert_eq!(next_a.digest(), next_b.digest());
 
         let y_step = array![[0.25], [0.75]];
-        let advanced_a = next_a.tell_pure(ticket_a, &y_step.view(), key).unwrap();
-        assert!(advanced_a.tell_pure(ticket_b, &y_step.view(), key).is_err());
+        let advanced_a = next_a
+            .tell_pure(ticket_a, &y_step.view(), step_key)
+            .unwrap();
+        assert!(
+            advanced_a
+                .tell_pure(ticket_b, &y_step.view(), step_key)
+                .is_err()
+        );
     }
 }

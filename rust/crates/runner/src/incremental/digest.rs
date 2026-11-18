@@ -54,7 +54,9 @@ fn code_digest(root: &Path) -> Result<String, String> {
     let tree_d = cached_tree(&res_dir)?;
     let spec_path = root.join("rust/crates/baux/src/config/spec/optimizer.rs");
     let file_d = file_digest(&spec_path)?;
-    let combined = format!("{tree_d}:{file_d}");
+    let uni_path = root.join("rust/crates/baux/src/unified_opt.rs");
+    let uni_d = file_digest(&uni_path)?;
+    let combined = format!("{tree_d}:{file_d}:{uni_d}");
     let digest = hash_hex(combined.as_bytes());
     let _ = CODE_DIGEST.set(digest.clone());
     Ok(digest)

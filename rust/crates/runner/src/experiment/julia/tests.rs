@@ -1,9 +1,10 @@
 use crate::experiment::julia::config::{Config, ExecMode, is_ocean, obj_count};
 use crate::experiment::julia::driver::{opt_cfg, run_opt};
-use crate::experiment::julia::metal::res_enn;
+use crate::experiment::julia::metal::{lhd_batch, objective_policy, res_enn};
+use crate::experiment::julia::metal_step::{MetalFiber, MetalJobSpec, typed_warmup, unit_domain};
 use crate::experiment::julia::mode::resolve_mode;
 use baux::config::OptimizerSpec;
-use baux::{BayesOptimizer, DomainFrame, prng};
+use baux::{AffineKey, AnyBackend, DomainFrame, OptBackend, UnifiedEngine};
 use ndarray::Array2;
 use std::fs;
 use std::path::PathBuf;
@@ -95,25 +96,33 @@ failure-tolerance = 3
 "#;
     let spec: OptimizerSpec =
         baux::artifact::toml::from_str(toml_str).expect("parse optimizer spec");
+    let cfg_opt = baux::OptimizerConfig::from_spec(&spec).expect("cfg_opt");
     let dim = 2048;
-    let mut bounds = Array2::zeros((dim, 2));
-    for j in 0..dim {
-        bounds[[j, 0]] = -1.0;
-        bounds[[j, 1]] = 1.0;
-    }
+    let bounds = Array2::from_shape_fn((dim, 2), |(_, j)| if j == 0 { -1.0 } else { 1.0 });
     let domain = DomainFrame::new(bounds).expect("domain");
     let dir = std::env::temp_dir().join(format!("baux_disk_opt_test_{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
-    let mut rng = prng(42);
-    let mut opt =
-        BayesOptimizer::from_disk(domain, &spec, 0, dir.clone(), &mut rng).expect("from_disk");
+    let job = MetalJobSpec::with_backend(
+        0,
+        42,
+        domain,
+        1,
+        3,
+        &spec,
+        cfg_opt,
+        None,
+        AnyBackend::disk(dir.clone()),
+    )
+    .expect("disk job spec");
+    let mut fiber = MetalFiber::new(job);
+    assert_eq!(fiber.device_name(), "disk");
     for r in 0..3 {
-        let (next_opt, u) = opt.ask(2, &mut rng).expect("ask");
-        opt = next_opt;
-        let y = Array2::from_shape_fn((2, 1), |(i, _)| -((r + i) as f64));
-        opt = opt
-            .tell(&u.view(), &y.view(), None, &mut rng)
-            .expect("tell");
+        let u = fiber.prepare_unit().expect("prepare unit");
+        assert_eq!(u.nrows(), 2);
+        let scs = vec![-(r as f64), -((r + 1) as f64)];
+        let _ = fiber
+            .commit_unit(&scs, &[0.0, 0.0], 1, &|s| (-s).max(0.0))
+            .expect("commit unit");
     }
     let _ = fs::remove_dir_all(&dir);
 }
@@ -142,8 +151,6 @@ fn live_julia() {
         .expect("verify oceananigans merkle lock");
     baux::artifact::merkle::verify_lock(&cwd, "fuse", None).expect("verify fuse merkle lock");
 
-    // 1. Live 1,048,576-parameter (512 x 1 x 512 x 4) zero-copy ShmSlab +
-    //    DiskBpann Oceananigans.jl NonhydrostaticModel rollout!
     let oc_toml = r#"
 version = 4
 experiment = "oceananigans"
@@ -196,8 +203,6 @@ failure-tolerance = 3
     assert_eq!(oc_rep["rounds"], 2);
     assert!(oc_rep["final_score_mean"].as_f64().unwrap().is_finite());
 
-    // 2. Live FUSE.jl v1.2.1 ARC equilibrium + IMAS ObjectiveFunction /
-    //    ConstraintFunction rollout over ShmSlab!
     let fu_toml = r#"
 version = 4
 experiment = "fuse"
@@ -284,6 +289,7 @@ y-scale = 2.0
 fit = "fixed"
 "#;
     let mcfg: Config = baux::artifact::toml::from_str(metal_toml).expect("parse metal mode");
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     assert_eq!(
         resolve_mode(&mcfg).expect("metal ok"),
         ExecMode::ResidentMetal
@@ -382,8 +388,6 @@ fn live_modes() {
     let _ = fs::remove_dir_all(&tmp);
     fs::create_dir_all(&tmp).expect("mkdir tmp");
 
-    // 1. Live ResidentMetal SingleStateBo (Hyperbolic + RiskPrefix + Rademacher
-    //    + Morbo)
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     {
         let rm_toml = r#"
@@ -427,7 +431,6 @@ fit = "fixed"
         assert!(rm_rep["final_score_mean"].as_f64().unwrap().is_finite());
     }
 
-    // 2. Live HostRam multi-objective + Wasserstein + Manifold
     let hr_toml = r#"
 version = 4
 experiment = "oceananigans"
@@ -471,7 +474,6 @@ local-neighbors = 4
     assert_eq!(hr_rep["objectives"], 2);
     assert!(hr_rep["final_score_mean"].as_f64().unwrap().is_finite());
 
-    // 3. Live Metal FlatPpo on Oceananigans.jl
     let ppo_toml = r#"
 version = 4
 experiment = "oceananigans"
@@ -497,11 +499,10 @@ algorithm = "ppo"
     let _ = fs::remove_dir_all(&tmp);
 }
 
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn quad_score(row: &[u16], shift: f64) -> f64 {
     let mut sum = 0.0f64;
     for &w in row {
-        let u = f64::from(baux::shm_slab::decode_half(w)).clamp(0.0, 1.0);
+        let u = f64::from(baux::unified_mem::decode_half(w)).clamp(0.0, 1.0);
         let d = u - shift;
         sum -= d * d;
     }
@@ -511,9 +512,8 @@ fn quad_score(row: &[u16], shift: f64) -> f64 {
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[test]
 fn metal_parity() {
-    use crate::experiment::julia::metal::{lhd_batch, make_enn, objective_policy, regional_spec};
-    use crate::experiment::julia::metal_step::{MetalFiber, MetalJobSpec};
     use baux::artifact::inc::EvalOutcome;
+    use baux::resident_metal::engine::make_enn;
 
     let rich_toml = r#"
 version = 4
@@ -587,25 +587,18 @@ failure-tolerance = 2
 
     let mut auto_opt = ocfg.clone();
     auto_opt.candidates = baux::optimizer_config::CandidateConfig::default();
-    let enn_d20 = make_enn(&rcfg.optimizer, &auto_opt, 20, 17).expect("d20 pool");
+    let enn_d20 = make_enn(&auto_opt, 20, 4, false, 17).expect("d20 pool");
     assert_eq!(enn_d20.pool.arms(), 4);
     assert_eq!(enn_d20.pool.count(), 2000);
-    let enn_cap = make_enn(&rcfg.optimizer, &auto_opt, 100, 17).expect("cap pool");
+    let enn_cap = make_enn(&auto_opt, 100, 4, false, 17).expect("cap pool");
     assert_eq!(enn_cap.pool.count(), 5000);
-
-    let plain_spec: OptimizerSpec = baux::artifact::toml::from_str(
-        "algorithm = \"bayesian-search\"\ncandidates = 32\narms = 4\nacquisition = \"upper-confidence-bound\"\n",
-    )
-    .expect("plain spec");
-    let def_rs = regional_spec(&plain_spec, 32, 4);
-    assert_eq!(def_rs.failure_tolerance, 8);
 
     let strata = lhd_batch(99, 8, 6);
     assert_eq!(strata.len(), 8);
     for col in 0..6 {
         let mut seen = [false; 8];
         for row in &strata {
-            let u = f64::from(baux::shm_slab::decode_half(row[col])).clamp(0.0, 0.9999);
+            let u = f64::from(baux::unified_mem::decode_half(row[col])).clamp(0.0, 0.9999);
             seen[(u * 8.0) as usize] = true;
         }
         assert!(
@@ -668,12 +661,24 @@ failure-tolerance = 1
 "#;
     let scfg: Config = baux::artifact::toml::from_str(single_toml).expect("parse single obj");
     let socfg = opt_cfg(&scfg, 1).expect("single opt cfg");
-    let s_spec = MetalJobSpec::from_parts(0, 4242, 16, 1, 10, &scfg.optimizer, socfg.clone(), None)
-        .expect("single job spec");
+    let dom = unit_domain(16).expect("16d unit domain");
+    let s_spec = MetalJobSpec::with_backend(
+        0,
+        4242,
+        dom.clone(),
+        1,
+        10,
+        &scfg.optimizer,
+        socfg.clone(),
+        None,
+        AnyBackend::Metal,
+    )
+    .expect("metal job spec");
     let mut m_fiber = MetalFiber::new(s_spec);
+    assert_eq!(m_fiber.device_name(), "metal");
     let mut m_best = f64::NEG_INFINITY;
     for _ in 0..10 {
-        let rows = m_fiber.prepare_batch().expect("prepare 4-arm batch");
+        let rows = m_fiber.prepare_batch().expect("prepare metal batch");
         assert!(!rows.is_empty() && rows.len() <= 4);
         let scs: Vec<f64> = rows.iter().map(|r| quad_score(r, 0.35)).collect();
         let vls = vec![0.0; rows.len()];
@@ -685,25 +690,32 @@ failure-tolerance = 1
     }
     assert!(m_best.is_finite() && m_best > -4.0);
 
-    let bounds = Array2::from_shape_fn((16, 2), |(_, j)| if j == 0 { 0.0 } else { 1.0 });
-    let dom = DomainFrame::new(bounds).expect("unit domain");
-    let mut h_rng = prng(4242);
-    let mut h_opt =
-        BayesOptimizer::with_domain(dom, socfg, &scfg.optimizer, 0, &mut h_rng).expect("host opt");
+    let h_spec = MetalJobSpec::with_backend(
+        0,
+        4242,
+        dom,
+        1,
+        10,
+        &scfg.optimizer,
+        socfg,
+        None,
+        AnyBackend::Cpu,
+    )
+    .expect("cpu job spec");
+    let mut h_fiber = MetalFiber::new(h_spec);
+    assert_eq!(h_fiber.device_name(), "cpu");
     let mut h_best = f64::NEG_INFINITY;
-    for r in 1..=10 {
-        let mut sr = crate::experiment::tokamak::label::round_rng(4242, r);
-        let (next_opt, u) = h_opt.ask(4, &mut sr).expect("host ask 4");
-        h_opt = next_opt;
-        let y = Array2::from_shape_fn((4, 1), |(i, _)| {
-            (0..16).map(|j| -(u[[i, j]] - 0.35).powi(2)).sum::<f64>()
-        });
-        for &v in y.iter() {
-            h_best = h_best.max(v);
-        }
-        h_opt = h_opt
-            .tell(&u.view(), &y.view(), None, &mut sr)
-            .expect("host tell 4");
+    for _ in 0..10 {
+        let u = h_fiber.prepare_unit().expect("host prepare unit 4");
+        assert_eq!(u.nrows(), 4);
+        let scs: Vec<f64> = (0..4)
+            .map(|i| (0..16).map(|j| -(u[[i, j]] - 0.35).powi(2)).sum::<f64>())
+            .collect();
+        let rec = h_fiber
+            .commit_unit(&scs, &[0.0; 4], 10, &|s| (-s).max(0.0))
+            .expect("host commit unit 4");
+        assert!(rec.best_score >= h_best);
+        h_best = rec.best_score;
     }
     assert!(h_best.is_finite() && h_best > -4.0);
 
@@ -739,7 +751,7 @@ failure-tolerance = 1
     )
     .expect("pareto spec");
     let par_opt = baux::optimizer_config::OptimizerConfig::from_spec(&par_spec).expect("par opt");
-    let par_enn = make_enn(&par_spec, &par_opt, 16, 19).expect("pareto enn");
+    let par_enn = make_enn(&par_opt, 16, 4, false, 19).expect("pareto enn");
     assert_eq!(
         par_enn.ask.acquisition.kind,
         baux::weights::AcquisitionKind::Pareto
@@ -790,39 +802,51 @@ failure-tolerance = 1
     let mut mb_fiber = MetalFiber::new(mb_spec);
     let w1 = mb_fiber.prepare_batch().expect("warm 1..4");
     assert_eq!(w1.len(), 4);
-    assert!(mb_fiber.search.is_none());
     let _ = mb_fiber
         .commit_batch(&[-2.0; 8], &[0.0; 4], 1, &|s| (-s).max(0.0))
         .expect("commit warm 1..4");
-    assert!(mb_fiber.search.is_none(), "must finish full k=6 LHD warmup");
+    assert_eq!(
+        mb_fiber
+            .engine
+            .as_ref()
+            .and_then(UnifiedEngine::init_progress),
+        Some((4, 6)),
+        "must remain in warmup until k=6 observations"
+    );
     let w2 = mb_fiber.prepare_batch().expect("warm 5..6");
     assert_eq!(w2.len(), 2);
     let _ = mb_fiber
         .commit_batch(&[-2.0; 4], &[0.0; 2], 1, &|s| (-s).max(0.0))
         .expect("commit warm 5..6");
-    assert!(mb_fiber.search.is_some());
+    assert_eq!(
+        mb_fiber
+            .engine
+            .as_ref()
+            .and_then(UnifiedEngine::init_progress),
+        None
+    );
 
     let act_rows = mb_fiber.prepare_batch().expect("active 4-arm morbo");
     assert_eq!(act_rows.len(), 4);
-    // Arm 2 strictly dominates incumbent & arms 0, 1, 3
     let win_scores = [-5.0, -5.0, -4.0, -4.0, 5.0, 5.0, -6.0, -6.0];
     let _ = mb_fiber
         .commit_batch(&win_scores, &[0.0; 4], 1, &|s| (-s).max(0.0))
         .expect("commit winning arm 2");
-    assert!(
-        mb_fiber.restarts.is_empty(),
+    assert_eq!(mb_fiber.best_row, act_rows[2]);
+    assert_eq!(
+        mb_fiber
+            .engine
+            .as_ref()
+            .and_then(UnifiedEngine::best_halves)
+            .as_deref(),
+        Some(act_rows[2].as_slice())
+    );
+    let next_act = mb_fiber.prepare_batch().expect("next active 4-arm batch");
+    assert_eq!(
+        next_act.len(),
+        4,
         "winning arm 2 must count as Success, not Failure"
     );
-    let inc_buf = mb_fiber
-        .search
-        .as_ref()
-        .unwrap()
-        .incumbent(0)
-        .expect("incumbent 0");
-    let inc_row =
-        unsafe { std::slice::from_raw_parts(inc_buf.contents().cast::<u16>(), 16) }.to_vec();
-    drop(inc_buf);
-    assert_eq!(inc_row, act_rows[2], "arm 2 must promote region base");
 
     // 3. Tolerance (failure-tolerance = 1) & FixedRadius preservation across
     //    restart
@@ -844,69 +868,202 @@ failure-tolerance = 1
     let _ = tol_f
         .commit_batch(&[0.0; 4], &[0.0; 4], 1, &|s| (-s).max(0.0))
         .unwrap();
-    // Active round 1 fails -> triggers restart #1 (failure_tolerance = 1)
     let _ = tol_f.prepare_batch().unwrap();
     let _ = tol_f
         .commit_batch(&[-10.0; 4], &[0.0; 4], 1, &|s| (-s).max(0.0))
         .unwrap();
-    assert_eq!(tol_f.slot_gen[0], 1);
-    // Replace round installs make_region state at gseq = 1
     let rep_rows = tol_f.prepare_batch().unwrap();
-    assert_eq!(rep_rows.len(), 1);
+    assert_eq!(rep_rows.len(), 1, "retirement #1 must queue 1 replace row");
     let _ = tol_f
         .commit_batch(&[0.0], &[0.0], 1, &|s| (-s).max(0.0))
         .unwrap();
-    // Verify controller_info directly on make_region (gseq = 1) AND end-to-end
-    // retirement under strictly worsening evaluations (default turbo_tolerance
-    // = 4 would need >8 rounds, whereas preserved failure_tolerance = 1
-    // retires by 3)!
-    let st_chk =
-        crate::experiment::julia::metal::make_region(&tol_f.spec, &[0x3800u16; 16], 0, 1, &[0.0])
-            .expect("check make_region");
-    let info = st_chk.controller_info().expect("controller info");
-    assert_eq!(info.failure_tolerance, 1);
-    assert_eq!(info.success_tolerance, 2);
+    let mut retired_again = false;
     for step in 1..=3 {
-        if tol_f.slot_gen[0] == 2 {
+        let rows = tol_f.prepare_batch().unwrap();
+        if rows.len() == 1 {
+            retired_again = true;
             break;
         }
-        let _ = tol_f.prepare_batch().unwrap();
         let bad = -10.0 * (step as f64);
         let _ = tol_f
             .commit_batch(&[bad; 4], &[0.0; 4], 1, &|s| (-s).max(0.0))
             .unwrap();
     }
-    assert_eq!(
-        tol_f.slot_gen[0], 2,
+    assert!(
+        retired_again,
         "restarted region must preserve failure_tolerance = 1"
     );
 
-    let mut fix_spec = tol_f.spec.clone();
-    fix_spec.reg_spec.controller = baux::config::RegionController::FixedRadius;
-    fix_spec.reg_spec.failure_tolerance = 1;
-    let init_r = fix_spec.tr_cfg.length_init as f32;
-    let st_fix =
-        crate::experiment::julia::metal::make_region(&fix_spec, &[0x3800u16; 16], 0, 1, &[0.0])
-            .expect("fixed make_region");
-    let mut s_fix =
-        baux::resident_metal::RegionalSearch::from_spec(vec![st_fix.clone()], &fix_spec.reg_spec)
+    let mut fix_cfg = tol_cfg.clone();
+    if let OptimizerSpec::BayesianSearch {
+        ref mut regional_search,
+        ..
+    } = fix_cfg.optimizer
+    {
+        let rs = regional_search.as_mut().unwrap();
+        rs.controller = baux::config::RegionController::FixedRadius;
+    }
+    let fix_opt = opt_cfg(&fix_cfg, 1).expect("fix opt");
+    let fix_spec =
+        MetalJobSpec::from_parts(0, 616, 16, 1, 8, &fix_cfg.optimizer, fix_opt, None).unwrap();
+    let mut fix_f = MetalFiber::new(fix_spec);
+    let _ = fix_f.prepare_batch().unwrap();
+    let _ = fix_f
+        .commit_batch(&[0.0; 4], &[0.0; 4], 1, &|s| (-s).max(0.0))
+        .unwrap();
+    for step in 1..=4 {
+        let rows = fix_f.prepare_batch().unwrap();
+        assert_eq!(rows.len(), 4, "FixedRadius must not retire");
+        let bad = -10.0 * (step as f64);
+        let _ = fix_f
+            .commit_batch(&[bad; 4], &[0.0; 4], 1, &|s| (-s).max(0.0))
             .unwrap();
-    s_fix = s_fix.restart(0, st_fix).expect("restart fixed");
-    for step in 0..3u64 {
-        let (ns, prop) = s_fix.ask(900 + step, fix_spec.enn_res.ask).unwrap();
-        let rad = prop.proposal().length;
-        assert!(
-            (rad - init_r).abs() < 1e-6,
-            "FixedRadius drifted after restart: {} vs {}",
-            rad,
-            init_r
-        );
-        let (ns2, _) = ns.tell(&prop, -10.0 - (step as f32), 0.0).unwrap();
-        assert_eq!(
-            baux::resident_metal::regional_restarts(&ns2, 0).unwrap(),
-            0,
-            "FixedRadius must not retire after restart"
-        );
-        s_fix = ns2;
+        let tr = fix_f.engine.as_ref().unwrap().tr_length();
+        assert!((tr - 0.4).abs() < 1e-6, "FixedRadius drifted: {tr}");
+    }
+}
+
+fn drive_julia<B: OptBackend>(
+    cfg: &Config,
+    n_obj: usize,
+    backend: B,
+    seed: u64,
+) -> (&'static str, usize, f64, [u8; 32]) {
+    let bounds = Array2::from_shape_fn((12, 2), |(_, j)| if j == 0 { -2.0 } else { 2.0 });
+    let domain = DomainFrame::new(bounds).expect("12d domain");
+    let cfg_opt = opt_cfg(cfg, n_obj).expect("opt cfg");
+    let pol = objective_policy(cfg, n_obj, seed);
+    let (warmup, key) = typed_warmup(
+        domain,
+        &cfg.optimizer,
+        cfg_opt,
+        pol,
+        backend,
+        AffineKey::new(seed),
+    )
+    .expect("typed warmup");
+    let dev = warmup.device_name();
+    let (x0, warmup, key) = warmup.design_step(4, key).expect("design step");
+    let y0 = Array2::from_shape_fn((x0.nrows(), n_obj), |(i, m)| {
+        let shift = if m == 0 { 0.4 } else { -0.4 };
+        -(0..12).map(|j| (x0[[i, j]] - shift).powi(2)).sum::<f64>()
+    });
+    let (ready, key) = warmup
+        .activate_ready(&x0.view(), &y0.view(), key)
+        .expect("activate ready");
+    let (ready_end, key, traces) = baux::scan_step(ready, key, 3, 2, |_, x| {
+        Ok(Array2::from_shape_fn((x.nrows(), n_obj), |(i, m)| {
+            let shift = if m == 0 { 0.4 } else { -0.4 };
+            -(0..12).map(|j| (x[[i, j]] - shift).powi(2)).sum::<f64>()
+        }))
+    })
+    .expect("scan step");
+    let _ = key.into_key();
+    assert_eq!(traces.len(), 3);
+    (
+        dev,
+        ready_end.num_obs(),
+        ready_end.best_y().expect("best_y"),
+        ready_end.digest(),
+    )
+}
+
+#[test]
+fn unified_backends() {
+    let morbo_toml = r#"
+version = 4
+experiment = "oceananigans"
+rounds = 4
+
+[manifold]
+scale-x = true
+metric-learning = true
+noise-aware = true
+
+[morbo]
+regions = 4
+alpha = 0.05
+rescalarize = "on-propose"
+
+[optimizer]
+algorithm = "bayesian-search"
+candidates = 64
+arms = 2
+acquisition = "upper-confidence-bound"
+
+[optimizer.perturbation]
+sampler = "raasp"
+num-pert = 6
+
+[optimizer.surrogate]
+neighbors = 4
+metric = "hyperbolic"
+local-neighbors = 4
+
+[optimizer.regional-search]
+count = 2
+sharing = "box-contain"
+allocation = "incumbent-ucb1"
+controller = "turbo"
+success-tolerance = 2
+failure-tolerance = 3
+"#;
+    let cfg: Config = baux::artifact::toml::from_str(morbo_toml).expect("parse unified morbo");
+    let (d_cpu, n_cpu, b_cpu, dig_cpu) = drive_julia(&cfg, 2, baux::CpuBackend, 909);
+    let (d_any, n_any, b_any, dig_any) = drive_julia(&cfg, 2, AnyBackend::Cpu, 909);
+    assert_eq!(d_cpu, "cpu");
+    assert_eq!(d_any, "cpu");
+    assert_eq!(n_cpu, 10);
+    assert_eq!(n_any, 10);
+    assert_eq!(dig_cpu, dig_any);
+    assert_eq!(b_cpu, b_any);
+    assert!(b_cpu.is_finite());
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        let (d_met, n_met, b_met, dig_met) = drive_julia(&cfg, 2, baux::MetalBackend, 909);
+        let (d_am, n_am, b_am, dig_am) = drive_julia(&cfg, 2, AnyBackend::Metal, 909);
+        assert_eq!(d_met, "metal");
+        assert_eq!(d_am, "metal");
+        assert_eq!(n_met, 10);
+        assert_eq!(n_am, 10);
+        assert_eq!(dig_met, dig_am);
+        assert_eq!(b_met, b_am);
+        assert!(b_met.is_finite());
+
+        // Also verify SingleStateBo zero-copy FP16 MetalFiber path via
+        // UnifiedEngine
+        let single_toml = r#"
+version = 4
+experiment = "oceananigans"
+backend = "resident-metal"
+rounds = 4
+
+[optimizer]
+algorithm = "single-state-bo"
+distribution = "rademacher"
+
+[optimizer.surrogate]
+neighbors = 4
+neighbor-rule = "risk-prefix"
+metric = "hyperbolic"
+local-neighbors = 4
+fit = "fixed"
+"#;
+        let scfg: Config = baux::artifact::toml::from_str(single_toml).expect("parse single");
+        let socfg = opt_cfg(&scfg, 1).expect("single opt");
+        let sspec =
+            MetalJobSpec::from_parts(0, 314, 12, 1, 4, &scfg.optimizer, socfg, None).expect("spec");
+        let mut sfiber = MetalFiber::new(sspec);
+        assert_eq!(sfiber.device_name(), "metal");
+        for _ in 0..4 {
+            let rows = sfiber.prepare_batch().expect("single prepare");
+            assert_eq!(rows.len(), 1);
+            let sc = quad_score(&rows[0], 0.5);
+            let _ = sfiber
+                .commit_batch(&[sc], &[0.0], 5, &|s| (-s).max(0.0))
+                .expect("single commit");
+        }
+        assert!(sfiber.best_score.is_finite());
     }
 }

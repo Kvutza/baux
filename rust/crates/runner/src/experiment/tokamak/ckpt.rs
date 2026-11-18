@@ -4,7 +4,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use baux::BayesOptimizer;
+use baux::UnifiedEngine;
 use deser::{Deserialize, Serialize};
 use ndarray::Array2;
 
@@ -143,7 +143,7 @@ pub fn load_meta(dir: &Path, rep: u32) -> Result<Option<LiveCkpt>, String> {
 pub fn save_live(
     dir: &Path,
     rep: u32,
-    opt: &BayesOptimizer,
+    opt: &UnifiedEngine,
     state: &LiveCkpt,
 ) -> Result<(), String> {
     let opt_path = dir.join(format!("seed_{rep}_opt.bin"));
@@ -151,7 +151,8 @@ pub fn save_live(
         .num_dim()
         .saturating_mul(state.completed_round)
         .saturating_mul(8);
-    if est_bytes <= INLINE_FREEZE
+    if opt.as_cpu().is_some()
+        && est_bytes <= INLINE_FREEZE
         && let Ok(opt_bytes) = opt.freeze()
         && opt_bytes.len() <= INLINE_FREEZE
     {
@@ -162,20 +163,29 @@ pub fn save_live(
     save_meta(dir, rep, state)
 }
 
-fn replay_optimizer(
-    mut opt: BayesOptimizer,
+fn replay_engine(
+    mut opt: UnifiedEngine,
     seed: u64,
     eval_scores: &[Vec<f64>],
-) -> Result<BayesOptimizer, String> {
+) -> Result<UnifiedEngine, String> {
+    let is_metal = opt.device_name() == "metal";
     for (idx, scores) in eval_scores.iter().enumerate() {
         let arms = scores.len().max(1);
         let mut step_rng = round_rng(seed, idx + 1);
-        let (new_opt, unit) = opt.ask(arms, &mut step_rng).map_err(|e| e.to_string())?;
-        opt = new_opt;
         let y = Array2::from_shape_fn((arms, 1), |(i, _)| scores[i]);
-        opt = opt
-            .tell(&unit.view(), &y.view(), None, &mut step_rng)
-            .map_err(|e| e.to_string())?;
+        if is_metal {
+            let (next_opt, rows) = opt
+                .ask_halves(arms, &mut step_rng)
+                .map_err(|e| e.to_string())?;
+            opt = next_opt
+                .tell_halves(&rows, &y.view(), None, &mut step_rng)
+                .map_err(|e| e.to_string())?;
+        } else {
+            let (next_opt, unit) = opt.ask(arms, &mut step_rng).map_err(|e| e.to_string())?;
+            opt = next_opt
+                .tell(&unit.view(), &y.view(), None, &mut step_rng)
+                .map_err(|e| e.to_string())?;
+        }
     }
     Ok(opt)
 }
@@ -184,8 +194,8 @@ pub fn load_live(
     dir: &Path,
     rep: u32,
     seed: u64,
-    template: BayesOptimizer,
-) -> Result<Option<(BayesOptimizer, LiveCkpt)>, String> {
+    template: UnifiedEngine,
+) -> Result<Option<(UnifiedEngine, LiveCkpt)>, String> {
     let meta_path = dir.join(format!("seed_{rep}_live.cbor"));
     if !meta_path.exists() {
         return Ok(None);
@@ -194,14 +204,15 @@ pub fn load_live(
     let state: LiveCkpt =
         baux::artifact::cbor::from_slice(&meta_bytes).map_err(|e| e.to_string())?;
     let opt_path = dir.join(format!("seed_{rep}_opt.bin"));
-    if opt_path.exists()
+    if template.as_cpu().is_some()
+        && opt_path.exists()
         && let Ok(opt_bytes) = fs::read(&opt_path)
         && let Ok(restored) = template.thaw(&opt_bytes)
     {
         return Ok(Some((restored, state)));
     }
     if state.eval_scores.len() == state.completed_round {
-        let replayed = replay_optimizer(template, seed, &state.eval_scores)?;
+        let replayed = replay_engine(template, seed, &state.eval_scores)?;
         return Ok(Some((replayed, state)));
     }
     Ok(None)

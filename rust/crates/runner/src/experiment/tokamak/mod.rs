@@ -17,7 +17,10 @@ use baux::artifact::json::{Value, json};
 use baux::artifact::runs;
 use baux::config::OptimizerSpec;
 use baux::optimizer::DomainFrame;
-use baux::{BayesOptimizer, Prng, prng};
+use baux::{
+    AffineKey, AnyBackend, Maximize, OptBackend, OptimizerConfig, TypedOptimizer, UnifiedEngine,
+    Warmup, prng,
+};
 use deser::{Deserialize, Serialize};
 use ndarray::Array2;
 
@@ -80,20 +83,52 @@ fn eval_batch(
     Ok(out)
 }
 
-fn make_opt(
+pub(super) fn resolve_backend(
     config: &Config,
     ckpt_dir: Option<&Path>,
     rep: u32,
-    rng: &mut Prng,
-) -> Result<BayesOptimizer, String> {
-    let use_disk = std::env::var("BAUX_ENN_DISK").ok().as_deref() == Some("1");
-    if use_disk && let Some(dir) = ckpt_dir {
-        let work = dir.join(format!("bpann_rep{rep}"));
-        return BayesOptimizer::from_disk(exp_domain(config), &config.optimizer, 0, work, rng)
-            .map_err(|e| e.to_string());
+) -> Result<AnyBackend, String> {
+    if config.backend == Backend::ResidentMetal {
+        metal::check_metal(&config.optimizer)?;
+        return Ok(AnyBackend::Metal);
     }
-    BayesOptimizer::from_domain(exp_domain(config), &config.optimizer, 0, rng)
-        .map_err(|e| e.to_string())
+    let use_disk = config.backend == Backend::HostDisk
+        || std::env::var("BAUX_ENN_DISK").ok().as_deref() == Some("1");
+    if use_disk && let Some(dir) = ckpt_dir {
+        return Ok(AnyBackend::disk(dir.join(format!("bpann_rep{rep}"))));
+    }
+    Ok(AnyBackend::Cpu)
+}
+
+pub(super) fn typed_warmup<B: OptBackend>(
+    config: &Config,
+    backend: B,
+    key: AffineKey,
+) -> Result<(TypedOptimizer<Maximize, Warmup, B>, AffineKey), String> {
+    let cfg_opt = OptimizerConfig::from_spec(&config.optimizer).map_err(|e| e.to_string())?;
+    TypedOptimizer::from_spec(
+        exp_domain(config),
+        cfg_opt,
+        &config.optimizer,
+        None,
+        0,
+        Maximize,
+        backend,
+        key,
+    )
+    .map_err(|e| e.to_string())
+}
+
+pub(super) fn make_opt(
+    config: &Config,
+    ckpt_dir: Option<&Path>,
+    rep: u32,
+    seed: u64,
+) -> Result<UnifiedEngine, String> {
+    let backend = resolve_backend(config, ckpt_dir, rep)?;
+    let (opt, k_rem) = typed_warmup(config, backend, AffineKey::new(seed))?;
+    let _ = k_rem.into_key();
+    Ok(opt.into_engine())
 }
 
 fn seed_weights(seed: u64, config: &Config) -> Result<Vec<f64>, String> {
@@ -111,12 +146,25 @@ fn seed_weights(seed: u64, config: &Config) -> Result<Vec<f64>, String> {
     );
     let spec: OptimizerSpec =
         baux::artifact::toml::from_str(&ref_toml).map_err(|e| e.to_string())?;
-    let mut init_rng = prng(seed);
+    let cfg_opt = OptimizerConfig::from_spec(&spec).map_err(|e| e.to_string())?;
     let domain = exp_domain(config);
-    let opt = BayesOptimizer::from_domain(domain.clone(), &spec, 0, &mut init_rng)
-        .map_err(|e| e.to_string())?;
+    let (opt, k_rem) = TypedOptimizer::from_spec(
+        domain.clone(),
+        cfg_opt,
+        &spec,
+        None,
+        0,
+        Maximize,
+        AnyBackend::Cpu,
+        AffineKey::new(seed),
+    )
+    .map_err(|e| e.to_string())?;
+    let _ = k_rem.into_key();
     let mut step_rng = round_rng(seed, 1);
-    let (_opt, unit) = opt.ask(1, &mut step_rng).map_err(|e| e.to_string())?;
+    let (_opt, unit) = opt
+        .into_engine()
+        .ask(1, &mut step_rng)
+        .map_err(|e| e.to_string())?;
     let points = domain.from_unit(&unit.view());
     Ok(points
         .as_slice_memory_order()
@@ -124,15 +172,27 @@ fn seed_weights(seed: u64, config: &Config) -> Result<Vec<f64>, String> {
         .to_vec())
 }
 
-fn finalize_seed(config: &Config, rep: u32, seed: u64, num_dim: usize, st: LiveCkpt) -> SeedRecord {
+fn finalize_seed(
+    config: &Config,
+    rep: u32,
+    seed: u64,
+    num_dim: usize,
+    is_metal: bool,
+    st: LiveCkpt,
+) -> SeedRecord {
     let final_error = tracking_error(config, st.best_score);
     let reduction_pct = if st.initial_error > 0.0 {
         ((st.initial_error - final_error) / st.initial_error * 100.0).max(0.0)
     } else {
         0.0
     };
+    let prefix = if is_metal {
+        "tokamak.metal.seed"
+    } else {
+        "tokamak.seed"
+    };
     eprintln!(
-        "tokamak.seed rep={}/{} seed={} final_score={:.6} final_error={:.6} reduction={:.2}% accepts={}/{} elapsed_s={:.2}",
+        "{prefix} rep={}/{} seed={} final_score={:.6} final_error={:.6} reduction={:.2}% accepts={}/{} elapsed_s={:.2}",
         rep + 1,
         config.repetitions.max(1),
         seed,
@@ -198,15 +258,62 @@ fn run_ppo(
     } else {
         baux_tokamak::TOTAL_PARAMS
     };
-    Ok(finalize_seed(config, rep, seed, num_dim, st))
+    Ok(finalize_seed(config, rep, seed, num_dim, false, st))
 }
 
-fn run_seed(
+#[allow(clippy::too_many_arguments)]
+fn step_round(
+    optimizer: UnifiedEngine,
+    domain: &DomainFrame,
+    low: &[f64],
+    span: &[f64],
+    scratch: &mut Vec<f64>,
+    worker: &mut Option<TokamakWorker>,
+    max_arms: usize,
+    seed: u64,
+    round: usize,
+) -> Result<(UnifiedEngine, Vec<f64>), String> {
+    let mut step_rng = round_rng(seed, round);
+    if optimizer.device_name() == "metal" {
+        let want = match optimizer.init_progress() {
+            Some((done, goal)) if goal > done => (goal - done).min(max_arms).max(1),
+            _ => max_arms,
+        };
+        let (next_opt, rows) = optimizer
+            .ask_halves(want, &mut step_rng)
+            .map_err(|e| e.to_string())?;
+        let (scores, _, _) = metal::eval_rows(worker, &rows, low, span, scratch)?;
+        let y = Array2::from_shape_fn((rows.len(), 1), |(i, _)| scores[i]);
+        let committed = next_opt
+            .tell_halves(&rows, &y.view(), None, &mut step_rng)
+            .map_err(|e| e.to_string())?;
+        return Ok((committed, scores));
+    }
+    let (next_opt, unit) = optimizer
+        .ask(max_arms, &mut step_rng)
+        .map_err(|e| e.to_string())?;
+    let points = domain.from_unit(&unit.view());
+    let slice = points
+        .as_slice_memory_order()
+        .ok_or("point non-contiguous")?;
+    let count = unit.nrows();
+    let scores = eval_batch(worker, slice, count)?;
+    let y = Array2::from_shape_fn((count, 1), |(i, _)| scores[i]);
+    let committed = next_opt
+        .tell(&unit.view(), &y.view(), None, &mut step_rng)
+        .map_err(|e| e.to_string())?;
+    Ok((committed, scores))
+}
+
+pub(super) fn run_seed(
     config: &Config,
     rep: u32,
     ckpt_dir: Option<&Path>,
     worker: &mut Option<TokamakWorker>,
 ) -> Result<SeedRecord, String> {
+    if config.backend == Backend::ResidentMetal {
+        metal::check_metal(&config.optimizer)?;
+    }
     if let Some(dir) = ckpt_dir
         && let Some(done) = load_done(dir, rep)
         && done.best_scores.len() == config.rounds
@@ -218,20 +325,17 @@ fn run_seed(
         return Ok(done);
     }
     let seed = baux::tune_seed(&config.experiment, "proposal", rep, 0);
-    let mut init_rng = prng(seed);
-    let template = make_opt(config, ckpt_dir, rep, &mut init_rng)?;
+    let template = make_opt(config, ckpt_dir, rep, seed)?;
     let num_dim = template.num_dim();
     let empty_ckpt = || LiveCkpt::empty(config.rounds);
     let (mut optimizer, mut st) = match ckpt_dir {
         Some(dir) => match load_live(dir, rep, seed, template)? {
             Some(pair) => pair,
-            None => {
-                let mut r2 = prng(seed);
-                (make_opt(config, ckpt_dir, rep, &mut r2)?, empty_ckpt())
-            }
+            None => (make_opt(config, ckpt_dir, rep, seed)?, empty_ckpt()),
         },
         None => (template, empty_ckpt()),
     };
+    let is_metal = optimizer.device_name() == "metal";
     let arms = config
         .optimizer
         .candidate_generation()
@@ -239,19 +343,27 @@ fn run_seed(
         .max(1);
     let every = ckpt_interval();
     let domain = exp_domain(config);
+    let (low, span) = if is_metal {
+        metal::low_span(&domain)
+    } else {
+        (Vec::new(), Vec::new())
+    };
+    let mut scratch = Vec::new();
     let start_round = st.completed_round + 1;
     let mut chunk_start = Instant::now();
     for round in start_round..=config.rounds {
-        let mut step_rng = round_rng(seed, round);
-        let (new_opt, unit) = optimizer
-            .ask(arms, &mut step_rng)
-            .map_err(|e| e.to_string())?;
-        optimizer = new_opt;
-        let points = domain.from_unit(&unit.view());
-        let slice = points
-            .as_slice_memory_order()
-            .ok_or("point non-contiguous")?;
-        let scores = eval_batch(worker, slice, arms)?;
+        let (next_opt, scores) = step_round(
+            optimizer,
+            &domain,
+            &low,
+            &span,
+            &mut scratch,
+            worker,
+            arms,
+            seed,
+            round,
+        )?;
+        optimizer = next_opt;
         let score = scores.iter().copied().fold(f64::NEG_INFINITY, f64::max);
         if score > st.best_score {
             st.best_score = score;
@@ -260,10 +372,6 @@ fn run_seed(
         if round == 1 {
             st.initial_error = tracking_error(config, score);
         }
-        let y = Array2::from_shape_fn((arms, 1), |(i, _)| scores[i]);
-        optimizer = optimizer
-            .tell(&unit.view(), &y.view(), None, &mut step_rng)
-            .map_err(|e| e.to_string())?;
         st.best_scores.push(st.best_score);
         st.eval_scores.push(scores);
         st.completed_round = round;
@@ -277,7 +385,7 @@ fn run_seed(
         }
     }
     st.elapsed_seconds += chunk_start.elapsed().as_secs_f64();
-    let rec = finalize_seed(config, rep, seed, num_dim, st);
+    let rec = finalize_seed(config, rep, seed, num_dim, is_metal, st);
     if let Some(dir) = ckpt_dir {
         save_done(dir, &rec)?;
     }
@@ -406,8 +514,6 @@ fn run_opt(config: &Config, root: Option<&Path>, ckpt_dir: Option<&Path>) -> Res
         .max(1);
     let mut worker = spawn_worker(config, root, arms)?;
     let is_ppo = matches!(config.optimizer, OptimizerSpec::Ppo);
-    let is_metal = config.backend == Backend::ResidentMetal;
-    let domain = exp_domain(config);
     eprintln!(
         "[tune] starting {} closed-loop {} ({:?}) | rounds={} regions={} seeds={}",
         if is_tokagym(config) {
@@ -426,8 +532,6 @@ fn run_opt(config: &Config, root: Option<&Path>, ckpt_dir: Option<&Path>) -> Res
         .map(|rep| {
             if is_ppo {
                 run_ppo(config, rep, &mut worker)
-            } else if is_metal {
-                metal::metal_seed(config, &domain, rep, ckpt_dir, &mut worker)
             } else {
                 run_seed(config, rep, ckpt_dir, &mut worker)
             }

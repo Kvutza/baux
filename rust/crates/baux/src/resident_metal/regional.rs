@@ -25,7 +25,7 @@ struct PendingImport {
 #[derive(Clone, Debug)]
 pub struct RegionalProposal {
     ticket: RegionTicket,
-    proposal: Proposals,
+    pub(super) proposal: Proposals,
 }
 
 /// Whether a failed tell can safely be retried with the same observation.
@@ -835,5 +835,56 @@ impl RegionalSearch {
             .map(|entry| entry.row.length())
             .sum::<u64>();
         engines + queued
+    }
+
+    pub fn resize_idle(
+        mut self,
+        pool: crate::procedural_pool::ProceduralPool,
+    ) -> Result<Self, String> {
+        for slot in 0..self.states.len() {
+            if self.pending_tickets[slot].is_none() && self.states[slot].check_idle().is_ok() {
+                let state = self.states[slot].clone();
+                self.states[slot] = state.resize_pool(pool)?;
+            }
+        }
+        Ok(self)
+    }
+
+    pub fn is_idle(&self, slot: usize) -> bool {
+        self.pending_tickets.get(slot).copied().flatten().is_none()
+            && self
+                .states
+                .get(slot)
+                .is_some_and(|state| state.check_idle().is_ok())
+    }
+
+    pub fn tr_length(&self) -> f64 {
+        self.states.first().map_or(0.8, |s| s.length)
+    }
+
+    pub fn fitted_enn(&self) -> Option<(usize, f32, f32, f32)> {
+        self.states.iter().find_map(SearchState::fitted_enn)
+    }
+
+    pub fn shares_buffers(&self, other: &Self) -> bool {
+        self.states.len() == other.states.len()
+            && self
+                .states
+                .iter()
+                .zip(&other.states)
+                .all(|(a, b)| Arc::ptr_eq(&a.base, &b.base))
+    }
+
+    pub fn hash_state(&self, buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&(self.states.len() as u64).to_le_bytes());
+        for (slot, st) in self.states.iter().enumerate() {
+            buf.extend_from_slice(&self.ledger.generation(slot).unwrap_or(0).to_le_bytes());
+            buf.extend_from_slice(&u8::from(self.pending_tickets[slot].is_some()).to_le_bytes());
+            buf.extend_from_slice(&st.length.to_bits().to_le_bytes());
+            buf.extend_from_slice(&st.best.to_bits().to_le_bytes());
+            buf.extend_from_slice(&(st.history as u64).to_le_bytes());
+            buf.extend_from_slice(&st.base_id.to_le_bytes());
+            buf.extend_from_slice(&(st.restart_count as u64).to_le_bytes());
+        }
     }
 }

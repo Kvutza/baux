@@ -445,9 +445,9 @@ pub struct ObjectiveSelector {
     pub morbo: Option<ResidentMorbo>,
     pub score_pipeline: ComputePipelineState,
     pub pipeline: ComputePipelineState,
-    pub parameters: Buffer,
-    pub report: Buffer,
-    pub vectors: Buffer,
+    pub parameters: Arc<Buffer>,
+    pub report: Arc<Buffer>,
+    pub vectors: Arc<Buffer>,
 }
 
 impl ObjectiveSelector {
@@ -511,12 +511,36 @@ impl ObjectiveSelector {
             pipeline: state
                 .runtime
                 .precise(&source, "Vector search", "dense_select_objectives")?,
-            parameters: state.runtime.buffer::<ObjectiveParams>(1),
-            report: state
-                .runtime
-                .buffer_with(&[ObjectiveSelectionReport::default()]),
-            vectors: state.runtime.buffer::<f32>(vec_count),
+            parameters: Arc::new(state.runtime.buffer::<ObjectiveParams>(1)),
+            report: Arc::new(
+                state
+                    .runtime
+                    .buffer_with(&[ObjectiveSelectionReport::default()]),
+            ),
+            vectors: Arc::new(state.runtime.buffer::<f32>(vec_count)),
         })
+    }
+
+    pub(super) fn ensure_vectors(
+        &mut self,
+        runtime: &Runtime,
+        pool_count: usize,
+    ) -> Result<(), String> {
+        let vec_count = pool_count.max(4) * MAX_OBJECTIVES;
+        let needed = bytes::<f32>(vec_count)?;
+        if self.vectors.length() < needed {
+            self.vectors = Arc::new(runtime.buffer::<f32>(vec_count));
+        }
+        Ok(())
+    }
+
+    pub(super) fn set_arms(&mut self, arms: usize) {
+        if let Some(morbo) = &mut self.morbo {
+            let regions = Arc::make_mut(&mut morbo.regions);
+            for region in regions.iter_mut() {
+                region.trust = region.trust.clone().set_arms(arms);
+            }
+        }
     }
 
     pub fn upload(&self, state: &SearchState, root: u64, ask: RoundConfig) {
@@ -831,7 +855,7 @@ impl SearchState {
             );
         }
         Ok(self.objective_selector.as_ref().and_then(|selector| {
-            let report = read::<ObjectiveSelectionReport>(&selector.report, 1)[0];
+            let report = read::<ObjectiveSelectionReport>(&*selector.report, 1)[0];
             (report.width != 0).then_some(report)
         }))
     }
@@ -848,12 +872,12 @@ impl SearchState {
         let Some(selector) = &self.objective_selector else {
             return Ok(None);
         };
-        let report = read::<ObjectiveSelectionReport>(&selector.report, 1)[0];
+        let report = read::<ObjectiveSelectionReport>(&*selector.report, 1)[0];
         if report.width == 0 {
             return Ok(None);
         }
         let count = self.pool_layout.count() as usize;
-        let raw = read::<f32>(&selector.vectors, count * MAX_OBJECTIVES);
+        let raw = read::<f32>(&*selector.vectors, count * MAX_OBJECTIVES);
         let vecs = raw
             .chunks_exact(MAX_OBJECTIVES)
             .map(|chunk| std::array::from_fn(|m| chunk[m]))

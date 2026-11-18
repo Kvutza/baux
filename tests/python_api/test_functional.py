@@ -699,4 +699,258 @@ def test_morbomanifold():
     assert baux.digest(gp_a) != baux.digest(gp_b)
 
 
+def test_deviceerrors():
+    import sys
+
+    from baux.turbo.config.surrogate import ExternalSurrogate
+
+    bounds = np.tile([-1.0, 1.0], (4, 1))
+    cfg = baux.chain(baux.lhd(4), baux.raasp(4, num_candidates=16), baux.enn(k=3))
+    cpu_st = baux.init(bounds, cfg, key=baux.key(12))
+    assert cpu_st.device == "cpu"
+
+    with pytest.raises(ValueError, match="device"):
+        baux.init(bounds, cfg, device="tpu")
+    with pytest.raises(TypeError, match="device"):
+        baux.init(bounds, cfg, device=123)  # type: ignore[arg-type]
+
+    if sys.platform == "darwin":
+        with pytest.raises(ValueError, match=r"(?i)cuda"):
+            baux.init(bounds, cfg, device="cuda")
+        with pytest.raises(ValueError, match=r"(?i)gp|surrogate|cpu"):
+            baux.init(bounds, baux.chain(baux.lhd(4), baux.gp()), device="metal")
+        ext_cfg = baux.OptimizerConfig(surrogate=ExternalSurrogate(lambda: object()))
+        with pytest.raises(ValueError, match=r"(?i)gp|surrogate|cpu"):
+            baux.init(bounds, ext_cfg, device="metal")
+
+
+def test_metalinit():
+    import sys
+
+    if sys.platform != "darwin":
+        pytest.skip("Apple Silicon Metal GPU tests require macOS")
+
+    bounds = np.tile([-2.0, 2.0], (8, 1))
+    auto_cfg = baux.chain(baux.lhd(4), baux.sobol(64), baux.enn(k=4), baux.ucb())
+    auto_st = baux.init(bounds, auto_cfg, key=baux.key(7), device="auto")
+    assert auto_st.device == "metal"
+    dev_st = baux.init(bounds, auto_cfg, key=baux.key(7), device=baux.Device("metal"))
+    assert dev_st.device == "metal"
+    assert baux.digest(auto_st) == baux.digest(dev_st)
+
+    for pert_tf in (baux.raasp(6, num_candidates=64), baux.sobol(64)):
+        cfg = baux.chain(
+            baux.lhd(4),
+            pert_tf,
+            baux.enn(k=4, num_samples=16),
+            baux.ucb(),
+        )
+        assert cfg.acquisition.beta == 1.0
+        s0 = baux.init(bounds, cfg, key=baux.key(64), device="metal")
+        assert s0.device == "metal"
+        assert baux.digest(s0) == baux.digest(
+            baux.init(bounds, cfg, key=baux.key(64), device="metal")
+        )
+
+        s1, warm = baux.ask(s0, 4)
+        assert warm.points.shape == (4, 8)
+        assert np.all((warm.points >= -2.0) & (warm.points <= 2.0))
+        s2, mu_w = baux.tell(s1, warm, -np.sum(warm.points**2, axis=1))
+        assert s2.device == "metal" and s2.num_observations == 4
+        assert np.all(np.isfinite(mu_w))
+
+        s3, batch = baux.ask(s2, 4)
+        assert batch.points.shape == (4, 8)
+        assert s3.telemetry.num_candidates == 64
+        assert np.all((batch.points >= -2.0) & (batch.points <= 2.0))
+        assert len({row.tobytes() for row in batch.points}) == 4
+        s4, mu_a = baux.tell(s3, batch, -np.sum((batch.points - 0.25) ** 2, axis=1))
+        assert s4.num_observations == 8
+        assert s4.best_x is not None and s4.best_y is not None
+        assert s4.x_obs.shape == (8, 8) and s4.y_obs.shape == (8, 1)
+        assert np.all(np.isfinite(mu_a))
+
+        blob = baux.freeze(s4)
+        s4_rest = baux.thaw(s0, blob)
+        assert s4_rest.device == "metal"
+        assert s4_rest.num_observations == s4.num_observations == 8
+        assert s4_rest.epoch == s4.epoch and s4_rest.seed == s4.seed
+        assert np.array_equal(s4_rest.x_obs, s4.x_obs)
+        assert np.array_equal(s4_rest.y_obs, s4.y_obs)
+        assert baux.freeze(s4_rest) == blob
+
+        fa = s4.fork(baux.key(101))
+        fb = s4.fork(baux.key(202))
+        assert fa.device == "metal" and fb.device == "metal"
+        assert fa._opt.shares_storage(s4._opt)
+        assert fb._opt.shares_storage(s4._opt)
+        sa, ba = baux.ask(fa, 4)
+        sb, bb = baux.ask(fb, 4)
+        sa2, _ = baux.tell(sa, ba, np.full(4, 12.0))
+        sb2, _ = baux.tell(sb, bb, np.full(4, -30.0))
+        assert s4.num_observations == 8
+        assert sa2.num_observations == 12 and sb2.num_observations == 12
+        assert baux.digest(sa2) != baux.digest(sb2)
+
+    scan_cfg = baux.chain(
+        baux.lhd(4),
+        baux.raasp(6, num_candidates=64),
+        baux.enn(k=3, num_samples=12),
+        baux.ucb(),
+    )
+    root = baux.init(bounds, scan_cfg, key=baux.key(314), device="metal")
+    fin, nk, traces = baux.scan(
+        root,
+        baux.key(19),
+        3,
+        eval_fn=lambda pts: -np.sum((pts - 0.2) ** 2, axis=1),
+        num_arms=4,
+    )
+    assert fin.device == "metal" and fin.num_observations == 12
+    assert root.num_observations == 0 and nk != baux.key(19)
+    assert len(traces) == 3 and traces[-1]["digest"] == baux.digest(fin)
+
+    def run_branch(idx: int, st: baux.OptimizerState, bk: baux.Key):
+        shift = 0.15 * float(idx)
+        end_st, _, tr = baux.scan(
+            st,
+            bk,
+            2,
+            eval_fn=lambda pts: -np.sum((pts - shift) ** 2, axis=1),
+            num_arms=4,
+        )
+        return end_st.device, baux.digest(end_st), tr[-1]["best_y"]
+
+    out_a = baux.pmap(root, baux.key(808), 4, run_branch)
+    out_b = baux.pmap(root, baux.key(808), 4, run_branch)
+    assert out_a == out_b
+    assert all(dev == "metal" for dev, _, _ in out_a)
+    assert len({dig for _, dig, _ in out_a}) == 4
+
+
+def test_metalregions():
+    import sys
+
+    if sys.platform != "darwin":
+        pytest.skip("Apple Silicon Metal GPU tests require macOS")
+
+    bounds = np.tile([-2.0, 2.0], (6, 1))
+    reg_cfg = baux.chain(
+        baux.lhd(4),
+        baux.raasp(4, num_candidates=64),
+        baux.enn(k=3, num_samples=12),
+        baux.ucb(),
+        baux.regions(3, sharing="box_contain"),
+    )
+    sr = baux.init(bounds, reg_cfg, key=baux.key(303), device="metal")
+    assert sr.device == "metal" and sr.num_regions == 3
+
+    sr, warm = baux.ask(sr, 4)
+    assert sr.pending_ids is not None and len(sr.pending_ids) == 4
+    sr = baux.complete(sr, warm.ids, -np.sum(warm.points**2, axis=1))
+    assert sr.pending_ids is None and sr.num_observations == 4
+
+    sr, batch = baux.ask(sr, 3)
+    assert batch.points.shape == (3, 6)
+    assert sr.pending_ids is not None and len(sr.pending_ids) == 3
+    sr_part = baux.complete(
+        sr,
+        [batch.ids[0], batch.ids[2]],
+        -np.sum(batch.points[[0, 2]] ** 2, axis=1),
+    )
+    assert sr_part.pending_ids == (batch.ids[1].value,)
+    sr_done = baux.cancel(sr_part, [batch.ids[1]])
+    assert sr_done.pending_ids is None
+    assert sr_done.num_observations == 6
+    assert sr_done.device == "metal"
+
+    sr_next, b_next = baux.ask(sr_done, 3)
+    assert b_next.points.shape == (3, 6)
+    sr_fin = baux.complete(sr_next, b_next.ids, -np.sum(b_next.points**2, axis=1))
+    assert sr_fin.num_observations == 9 and baux.digest(sr_fin) != baux.digest(sr_done)
+
+    rst_cfg = baux.chain(
+        baux.lhd(2),
+        baux.raasp(4, num_candidates=64),
+        baux.enn(k=2, num_samples=8),
+        baux.ucb(),
+        baux.tr_bounds(length_init=0.05, length_min=0.04, length_max=0.2),
+        baux.regions(2, sharing="box_contain", failure_tolerance=1),
+    )
+    st_r = baux.init(bounds, rst_cfg, key=baux.key(404), device="metal")
+    st_r, w_r = baux.ask(st_r, 2)
+    st_r = baux.complete(st_r, w_r.ids, np.array([10.0, 9.0]))
+    for step_idx in range(4):
+        st_r, b_r = baux.ask(st_r, 4)
+        assert 1 <= b_r.points.shape[0] <= 4
+        assert len(b_r.ids) == b_r.points.shape[0]
+        y_fail = np.full(b_r.points.shape[0], -100.0 - float(step_idx))
+        st_r = baux.complete(st_r, b_r.ids, y_fail)
+        assert st_r.pending_ids is None
+
+    single_rst = baux.chain(
+        baux.lhd(2),
+        baux.raasp(4, num_candidates=64),
+        baux.enn(k=2, num_samples=8),
+        baux.ucb(),
+        baux.tr_bounds(length_init=0.05, length_min=0.04, length_max=0.2),
+    )
+    st_s = baux.init(bounds, single_rst, key=baux.key(405), device="metal")
+    st_s, w_s = baux.ask(st_s, 2)
+    st_s, _ = baux.tell(st_s, w_s, np.array([10.0, 9.0]))
+    for step_idx in range(8):
+        st_s, b_s = baux.ask(st_s, 4)
+        assert 1 <= b_s.points.shape[0] <= 4
+        assert len(b_s.ids) == b_s.points.shape[0]
+        st_s, _ = baux.tell(
+            st_s, b_s, np.full(b_s.points.shape[0], -100.0 - float(step_idx))
+        )
+
+
+def test_metalmorbo():
+    import sys
+    from dataclasses import replace as dc_replace
+
+    if sys.platform != "darwin":
+        pytest.skip("Apple Silicon Metal GPU tests require macOS")
+
+    from baux.turbo.config import (
+        MorboTrustRegion,
+        MultiObjectiveConfig,
+        Rescalarize,
+        RescalePolicy,
+    )
+
+    bounds = np.tile([-1.5, 1.5], (6, 1))
+    base_cfg = baux.chain(
+        baux.lhd(6),
+        baux.sobol(64, num_pert=4),
+        baux.enn(k=4, num_samples=12),
+        baux.thompson(),
+    )
+    for mode in (Rescalarize.ON_PROPOSE, Rescalarize.ON_RESTART):
+        morbo_cfg = dc_replace(
+            base_cfg,
+            trust_region=MorboTrustRegion(
+                multi_objective=MultiObjectiveConfig(num_metrics=2, alpha=0.05),
+                rescale_policy=RescalePolicy(rescalarize=mode),
+                noise_aware=True,
+            ),
+        )
+        st = baux.init(bounds, morbo_cfg, key=baux.key(71), device="metal")
+        assert st.device == "metal"
+        for _ in range(3):
+            st, batch = baux.ask(st, 4)
+            assert batch.points.shape == (4, 6)
+            f1 = -np.sum((batch.points - 0.3) ** 2, axis=1)
+            f2 = -np.sum((batch.points + 0.3) ** 2, axis=1)
+            y = np.column_stack([f1, f2])
+            yv = np.full_like(y, 0.01)
+            st, _ = baux.tell(st, batch, y, y_var=yv)
+        assert st.device == "metal"
+        assert st.num_observations == 12
+        assert st.y_obs.shape == (12, 2)
+        assert st.best_x is not None and st.best_y is not None
+
+
 test_manifold_evals = test_manifolds

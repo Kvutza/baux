@@ -58,9 +58,39 @@ def _readonly(arr: Any, dtype: Any = float) -> np.ndarray:
     return out
 
 
-def _makeinner(bounds: np.ndarray, config: OptimizerConfig, seed: int) -> Any:
+def _normdev(device: Any) -> str:
+    if isinstance(device, str):
+        name = device.strip().lower()
+    elif hasattr(device, "kind") and isinstance(device.kind, str):
+        name = device.kind.strip().lower()
+    else:
+        raise TypeError(f"device must be a str or Device, got {type(device)!r}")
+    if name == "":
+        name = "auto"
+    if name not in ("cpu", "metal", "cuda", "auto"):
+        raise ValueError(
+            f"unsupported device {device!r}; expected 'cpu', 'metal', 'cuda', or 'auto'"
+        )
+    return name
+
+
+def _makeinner(
+    bounds: np.ndarray,
+    config: OptimizerConfig,
+    seed: int,
+    device: Any = "cpu",
+) -> Any:
     from . import _rust
 
+    dev = _normdev(device)
+    if dev != "cpu" and isinstance(
+        config.surrogate, (GaussianProcess, ExternalSurrogate)
+    ):
+        resolved = _rust.Device("auto").kind if dev == "auto" and _rust.Device else dev
+        if resolved != "cpu":
+            raise ValueError(
+                f"Python GP / custom surrogate callbacks require device='cpu', got {resolved!r}"
+            )
     plan = _plan(config)
     n = 10 if config.init.num_init is None else int(config.init.num_init)
     regions = (
@@ -88,6 +118,7 @@ def _makeinner(bounds: np.ndarray, config: OptimizerConfig, seed: int) -> Any:
         gp=plan.gp,
         gp_factory=gp_factory,
         fit_steps=plan.fit_steps,
+        device=dev,
     )
 
 
@@ -110,6 +141,7 @@ class OptimizerState:
     ingestion_failure: str | None
     telemetry: Telemetry
     _opt: Any
+    device: str = "cpu"
 
     @property
     def x_obs(self) -> np.ndarray:
@@ -155,7 +187,12 @@ class OptimizerState:
     def best_y(self) -> float | None:
         """Best observed primary objective value, or `None` if empty."""
         y = self.y_obs
-        return None if y.size == 0 else float(np.max(y[:, 0]))
+        if y.size > 0:
+            return float(np.max(y[:, 0]))
+        if hasattr(self._opt, "best_y"):
+            val = self._opt.best_y()
+            return None if val is None else float(val)
+        return None
 
     def digest(self) -> str:
         """Return the 64-character hexadecimal BLAKE3 state digest."""
@@ -224,6 +261,7 @@ def _snapshot(
         ingestion_failure=getattr(inner, "ingestion_failure", None),
         telemetry=telem,
         _opt=inner,
+        device=prev.device,
     )
 
 
@@ -299,6 +337,7 @@ def thaw(state: OptimizerState, data: bytes) -> OptimizerState:
         ingestion_failure=getattr(next_opt, "ingestion_failure", None),
         telemetry=telem,
         _opt=next_opt,
+        device=state.device,
     )
 
 
@@ -306,6 +345,7 @@ __all__ = [
     "OptimizerState",
     "_foldseed",
     "_makeinner",
+    "_normdev",
     "_readonly",
     "_resolveseed",
     "_snapshot",
